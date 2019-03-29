@@ -340,7 +340,10 @@ class Trainer(object):
         for i, (x, y) in enumerate(self.valid_loader):
             if self.use_gpu:
                 x, y = x.cuda(), y.cuda()
-            x, y = Variable(x), Variable(y)
+            try:
+                x, y = Variable(x), Variable(y.squeeze(1))
+            except:
+                x, y = Variable(x), Variable(y)
 
             # duplicate 10 times
             x = x.repeat(self.M, 1, 1, 1)
@@ -434,7 +437,10 @@ class Trainer(object):
         for i, (x, y) in enumerate(self.test_loader):
             if self.use_gpu:
                 x, y = x.cuda(), y.cuda()
-            x, y = Variable(x, volatile=True), Variable(y)
+            try:
+                x, y = Variable(x, volatile=True), Variable(y.squeeze(1))
+            except:
+                x, y = Variable(x, volatile=True), Variable(y)
 
             # duplicate 10 times
             x = x.repeat(self.M, 1, 1, 1)
