@@ -1,3 +1,13 @@
+# CELEBA RAM
+
+This is actually a impl of ram on celeba classification
+does classification seperately for each label
+
+invoke with:
+```
+python main.py --dataset celeba --image-size 256 --num_classes 2 --selected_attrs 'Male'
+```
+
 # Recurrent Visual Attention
 
 This is a **PyTorch** implementation of [Recurrent Models of Visual Attention](https://arxiv.org/abs/1406.6247) by *Volodymyr Mnih, Nicolas Heess, Alex Graves and Koray Kavukcuoglu*.

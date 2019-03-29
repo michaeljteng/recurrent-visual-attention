@@ -59,7 +59,7 @@ class Trainer(object):
         else:
             self.test_loader = data_loader
             self.num_test = len(self.test_loader.dataset)
-        self.num_classes = 10
+        self.num_classes = config.num_classes
         self.num_channels = 1
 
         # training params
@@ -215,7 +215,10 @@ class Trainer(object):
             for i, (x, y) in enumerate(self.train_loader):
                 if self.use_gpu:
                     x, y = x.cuda(), y.cuda()
-                x, y = Variable(x), Variable(y)
+                try:
+                    x, y = Variable(x), Variable(y.squeeze(1))
+                except:
+                    x, y = Variable(x), Variable(y)
 
                 plot = False
                 if (epoch % self.plot_freq == 0) and (i == 0):

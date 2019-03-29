@@ -194,6 +194,7 @@ class glimpse_network(nn.Module):
         # glimpse layer
         D_in = k*g*g*c
         self.fc1 = nn.Linear(D_in, h_g)
+        #  import pdb; pdb.set_trace()
 
         # location layer
         D_in = 2

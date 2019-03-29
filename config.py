@@ -26,6 +26,8 @@ glimpse_arg.add_argument('--loc_hidden', type=int, default=128,
                          help='hidden size of loc fc')
 glimpse_arg.add_argument('--glimpse_hidden', type=int, default=128,
                          help='hidden size of glimpse fc')
+glimpse_arg.add_argument('--num_classes', type=int, default=10,
+                       help='# of epochs to train for')
 
 
 # core network params
@@ -106,9 +108,9 @@ misc_arg.add_argument('--model_save_dir', type=str, default='stargan/models')
 misc_arg.add_argument('--sample_dir', type=str, default='stargan/samples')
 misc_arg.add_argument('--result_dir', type=str, default='stargan/results')
 misc_arg.add_argument('--selected_attrs', '--list', nargs='+', help='selected attributes for the CelebA dataset',
-                        default=['Black_Hair', 'Blond_Hair', 'Brown_Hair', 'Male', 'Young'])
+                        default=['Male'])
 misc_arg.add_argument('--celeba_crop_size', type=int, default=178, help='crop size for the CelebA dataset')
-misc_arg.add_argument('--image_size', type=int, default=128, help='image resolution')
+misc_arg.add_argument('--image_size', type=int, default=28, help='image resolution')
 misc_arg.add_argument('--mode', type=str, default='train', choices=['train', 'test'])
 
 def get_config():
