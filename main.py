@@ -4,6 +4,7 @@ from trainer import Trainer
 from config import get_config
 from utils import prepare_dirs, save_config
 from data_loader import get_test_loader, get_train_valid_loader
+from celeba_loader import get_train_celeba_loader
 
 
 def main(config):
@@ -19,16 +20,30 @@ def main(config):
         kwargs = {'num_workers': 1, 'pin_memory': True}
 
     # instantiate data loaders
-    if config.is_train:
-        data_loader = get_train_valid_loader(
-            config.data_dir, config.batch_size,
-            config.random_seed, config.valid_size,
-            config.shuffle, config.show_sample, **kwargs
-        )
-    else:
-        data_loader = get_test_loader(
-            config.data_dir, config.batch_size, **kwargs
-        )
+    if config.dataset == 'mnist':
+        if config.is_train:
+            data_loader = get_train_valid_loader(
+                config.data_dir, config.batch_size,
+                config.random_seed, config.valid_size,
+                config.shuffle, config.show_sample, **kwargs
+            )
+        else:
+            data_loader = get_test_loader(
+                config.data_dir, config.batch_size, **kwargs
+            )
+    elif config.dataset == 'celeba':
+        if config.is_train:
+            data_loader = get_train_celeba_loader(
+                config.celeba_image_dir, config.attr_path, config.selected_attrs,
+                config.celeba_crop_size, config.image_size, config.batch_size,
+                'CelebA', config.mode, config.num_workers
+            )
+        else:
+            # TODO: make a seperate test loader?
+            pass
+            #  data_loader = get_test_loader(
+            #      config.data_dir, config.batch_size, **kwargs
+            #  )
 
     # instantiate trainer
     trainer = Trainer(config, data_loader)

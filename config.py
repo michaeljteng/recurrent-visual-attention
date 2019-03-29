@@ -84,6 +84,8 @@ misc_arg.add_argument('--random_seed', type=int, default=1,
                       help='Seed to ensure reproducibility')
 misc_arg.add_argument('--data_dir', type=str, default='./data',
                       help='Directory in which data is stored')
+misc_arg.add_argument('--dataset', type=str, default='mnist',
+                      help='Celeba or not')
 misc_arg.add_argument('--ckpt_dir', type=str, default='./ckpt',
                       help='Directory in which to save model checkpoints')
 misc_arg.add_argument('--logs_dir', type=str, default='./logs/',
@@ -96,7 +98,18 @@ misc_arg.add_argument('--print_freq', type=int, default=10,
                       help='How frequently to print training details')
 misc_arg.add_argument('--plot_freq', type=int, default=1,
                       help='How frequently to plot glimpses')
-
+misc_arg.add_argument('--celeba_image_dir', type=str, default='data/celeba/images')
+misc_arg.add_argument('--attr_path', type=str, default='data/celeba/list_attr_celeba.txt')
+misc_arg.add_argument('--rafd_image_dir', type=str, default='data/RaFD/train')
+misc_arg.add_argument('--log_dir', type=str, default='stargan/logs')
+misc_arg.add_argument('--model_save_dir', type=str, default='stargan/models')
+misc_arg.add_argument('--sample_dir', type=str, default='stargan/samples')
+misc_arg.add_argument('--result_dir', type=str, default='stargan/results')
+misc_arg.add_argument('--selected_attrs', '--list', nargs='+', help='selected attributes for the CelebA dataset',
+                        default=['Black_Hair', 'Blond_Hair', 'Brown_Hair', 'Male', 'Young'])
+misc_arg.add_argument('--celeba_crop_size', type=int, default=178, help='crop size for the CelebA dataset')
+misc_arg.add_argument('--image_size', type=int, default=128, help='image resolution')
+misc_arg.add_argument('--mode', type=str, default='train', choices=['train', 'test'])
 
 def get_config():
     config, unparsed = parser.parse_known_args()

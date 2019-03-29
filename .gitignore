@@ -1,6 +1,7 @@
 *.p
 *.mp4
 data/processed/
+data/celeba
 data/raw/
 logs/
 ckpt/
