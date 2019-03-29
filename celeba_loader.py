@@ -63,7 +63,7 @@ class CelebA(data.Dataset):
         dataset = self.train_dataset if self.mode == 'train' else self.test_dataset
         filename, label = dataset[index]
         image = Image.open(os.path.join(self.image_dir, filename))
-        return self.transform(image), torch.FloatTensor(label)
+        return self.transform(image), torch.LongTensor(label)
 
     def __len__(self):
         """Return the number of images."""
@@ -83,6 +83,7 @@ def get_train_celeba_loader(image_dir,
                             ):
     """Build and return a data loader."""
     transform = []
+    transform.append(T.Grayscale(num_output_channels=1))
     if mode == 'train':
         transform.append(T.RandomHorizontalFlip())
     transform.append(T.CenterCrop(crop_size))

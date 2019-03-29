@@ -211,6 +211,7 @@ class glimpse_network(nn.Module):
         l_t_prev = l_t_prev.view(l_t_prev.size(0), -1)
 
         # feed phi and l to respective fc layers
+        #  import pdb; pdb.set_trace()
         phi_out = F.relu(self.fc1(phi))
         l_out = F.relu(self.fc2(l_t_prev))
 
