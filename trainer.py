@@ -277,8 +277,8 @@ class Trainer(object):
                 acc = 100 * (correct.sum() / len(y))
 
                 # store
-                losses.update(loss.data[0], x.size()[0])
-                accs.update(acc.data[0], x.size()[0])
+                losses.update(loss.item(), x.size()[0])
+                accs.update(acc.item(), x.size()[0])
 
                 # compute gradients and update SGD
                 self.optimizer.zero_grad()
@@ -292,7 +292,7 @@ class Trainer(object):
                 pbar.set_description(
                     (
                         "{:.1f}s - loss: {:.3f} - acc: {:.3f}".format(
-                            (toc-tic), loss.data[0], acc.data[0]
+                            (toc-tic), loss.item(), acc.item()
                         )
                     )
                 )
@@ -406,8 +406,8 @@ class Trainer(object):
             acc = 100 * (correct.sum() / len(y))
 
             # store
-            losses.update(loss.data[0], x.size()[0])
-            accs.update(acc.data[0], x.size()[0])
+            losses.update(loss.item(), x.size()[0])
+            accs.update(acc.item(), x.size()[0])
 
             # log to tensorboard
             if self.use_tensorboard:
