@@ -33,17 +33,18 @@ def main(config):
             )
     elif config.dataset == 'celeba':
         if config.is_train:
-            data_loader = get_train_celeba_loader(
+            trainer, validator, _ = get_train_celeba_loader(
                 config.celeba_image_dir, config.attr_path, config.selected_attrs,
                 config.celeba_crop_size, config.image_size, config.batch_size,
                 'CelebA', config.mode, config.num_workers
             )
+            data_loader = (trainer, validator)
         else:
-            # TODO: make a seperate test loader?
-            pass
-            #  data_loader = get_test_loader(
-            #      config.data_dir, config.batch_size, **kwargs
-            #  )
+            _, _, data_loader = get_train_celeba_loader(
+                config.celeba_image_dir, config.attr_path, config.selected_attrs,
+                config.celeba_crop_size, config.image_size, config.batch_size,
+                'CelebA', config.mode, config.num_workers
+            )
 
     # instantiate trainer
     trainer = Trainer(config, data_loader)

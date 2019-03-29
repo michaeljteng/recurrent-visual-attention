@@ -77,6 +77,7 @@ def get_train_valid_loader(data_dir,
         dataset, batch_size=batch_size, sampler=valid_sampler,
         num_workers=num_workers, pin_memory=pin_memory,
     )
+    import pdb; pdb.set_trace()
 
     # visualize some images
     if show_sample:

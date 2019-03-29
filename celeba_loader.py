@@ -1,10 +1,12 @@
 from torch.utils import data
 from torchvision import transforms as T
 from torchvision.datasets import ImageFolder
+from torch.utils.data.sampler import SubsetRandomSampler
 from PIL import Image
 import torch
 import os
 import random
+import numpy as np
 
 
 class CelebA(data.Dataset):
@@ -68,8 +70,17 @@ class CelebA(data.Dataset):
         return self.num_images
 
 
-def get_train_celeba_loader(image_dir, attr_path, selected_attrs, crop_size=178, image_size=128, 
-               batch_size=16, dataset='CelebA', mode='train', num_workers=1):
+def get_train_celeba_loader(image_dir, 
+                            attr_path, 
+                            selected_attrs, 
+                            crop_size=178, 
+                            image_size=128, 
+                            batch_size=16, 
+                            dataset='CelebA', 
+                            mode='train', 
+                            num_workers=1, 
+                            valid_size=0.1,
+                            ):
     """Build and return a data loader."""
     transform = []
     if mode == 'train':
@@ -80,13 +91,36 @@ def get_train_celeba_loader(image_dir, attr_path, selected_attrs, crop_size=178,
     transform.append(T.Normalize(mean=(0.5, 0.5, 0.5), std=(0.5, 0.5, 0.5)))
     transform = T.Compose(transform)
 
-    if dataset == 'CelebA':
-        dataset = CelebA(image_dir, attr_path, selected_attrs, transform, mode)
-    elif dataset == 'RaFD':
-        dataset = ImageFolder(image_dir, transform)
+    dataset = CelebA(image_dir, attr_path, selected_attrs, transform, mode)
 
-    data_loader = data.DataLoader(dataset=dataset,
+    error_msg = "[!] valid_size should be in the range [0, 1]."
+    assert ((valid_size >= 0) and (valid_size <= 1)), error_msg
+
+    num_total = len(dataset)
+    indices = list(range(num_total))
+    test_split = int(np.floor(valid_size*2 * num_total))
+    remainder_indices, test_idx = indices[test_split:], indices[:test_split]
+
+    num_train = len(remainder_indices)
+    valid_split = int(np.floor(valid_size * num_train))
+    train_idx, valid_idx = remainder_indices[valid_split:], remainder_indices[:valid_split]
+
+    train_sampler = SubsetRandomSampler(train_idx)
+    valid_sampler = SubsetRandomSampler(valid_idx)
+    test_sampler = SubsetRandomSampler(test_idx)
+
+    train_loader = data.DataLoader(dataset=dataset,
                                   batch_size=batch_size,
-                                  shuffle=(mode=='train'),
+                                  sampler=train_sampler,  
                                   num_workers=num_workers)
-    return data_loader
+
+    valid_loader = data.DataLoader(dataset=dataset,
+                                  batch_size=batch_size,
+                                  sampler=valid_sampler,  
+                                  num_workers=num_workers)
+
+    test_loader = data.DataLoader(dataset=dataset,
+                                  batch_size=batch_size,
+                                  sampler=test_sampler,  
+                                  num_workers=num_workers)
+    return (train_loader, valid_loader, test_loader)
