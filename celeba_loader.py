@@ -3,6 +3,7 @@ from torchvision import transforms as T
 from torchvision.datasets import ImageFolder
 from torch.utils.data.sampler import SubsetRandomSampler
 from PIL import Image
+from utils import plot_images
 import torch
 import os
 import random
@@ -80,6 +81,7 @@ def get_train_celeba_loader(image_dir,
                             mode='train', 
                             num_workers=1, 
                             valid_size=0.1,
+                            show_sample=False,
                             ):
     """Build and return a data loader."""
     transform = []
@@ -124,4 +126,17 @@ def get_train_celeba_loader(image_dir,
                                   batch_size=batch_size,
                                   sampler=test_sampler,  
                                   num_workers=num_workers)
+
+    #  import pdb; pdb.set_trace()
+    if True:
+        sample_loader = torch.utils.data.DataLoader(
+            dataset, batch_size=9, shuffle=False,
+            num_workers=num_workers, pin_memory=False
+        )
+        data_iter = iter(sample_loader)
+        images, labels = data_iter.next()
+        X = images.numpy()
+        X = np.transpose(X, [0, 2, 3, 1])
+        plot_images(X, labels)
+
     return (train_loader, valid_loader, test_loader)

@@ -56,7 +56,7 @@ data_arg.add_argument('--num_workers', type=int, default=4,
                       help='# of subprocesses to use for data loading')
 data_arg.add_argument('--shuffle', type=str2bool, default=True,
                       help='Whether to shuffle the train and valid indices')
-data_arg.add_argument('--show_sample', type=str2bool, default=False,
+data_arg.add_argument('--show_sample', type=str2bool, default=True,
                       help='Whether to visualize a sample grid of the data')
 
 
