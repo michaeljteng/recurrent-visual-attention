@@ -7,6 +7,12 @@ invoke with:
 ```
 python main.py --dataset celeba --image-size 256 --num_classes 2 --selected_attrs 'Male'
 ```
+^ this does okay
+
+```
+python main.py --dataset celeba --image-size 1024 --num_classes 2 --selected_attrs 'Attractive' --resume True
+```
+^ this does really badly
 
 # Recurrent Visual Attention
 
