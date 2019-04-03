@@ -38,14 +38,14 @@ def main(config):
             trainer, validator, _ = get_train_celeba_loader(
                 config.celeba_image_dir, config.attr_path, config.selected_attrs,
                 config.celeba_crop_size, config.image_size, config.batch_size,
-                'CelebA', config.mode, config.num_workers, config.show_sample
+                config.mode, config.num_workers, 0.1, config.show_sample
             )
             data_loader = (trainer, validator)
         else:
             _, _, data_loader = get_train_celeba_loader(
                 config.celeba_image_dir, config.attr_path, config.selected_attrs,
                 config.celeba_crop_size, config.image_size, config.batch_size,
-                'CelebA', config.mode, config.num_workers, config.show_sample
+                config.mode, config.num_workers, 0.1, config.show_sample
             )
     elif config.dataset == 'celebhq':
         if config.is_train:

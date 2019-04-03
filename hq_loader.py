@@ -105,6 +105,7 @@ def get_train_celebhq_loader(image_dir,
 
     error_msg = "[!] valid_size should be in the range [0, 1]."
     assert ((valid_size >= 0) and (valid_size <= 1)), error_msg
+    #  valid_size = 0.5
 
     num_total = len(dataset)
     indices = list(range(num_total))
@@ -122,19 +123,22 @@ def get_train_celebhq_loader(image_dir,
     train_loader = data.DataLoader(dataset=dataset,
                                   batch_size=batch_size,
                                   sampler=train_sampler,  
+                                  drop_last=True,
                                   num_workers=1)
 
     valid_loader = data.DataLoader(dataset=dataset,
                                   batch_size=batch_size,
                                   sampler=valid_sampler,  
+                                  drop_last=True,
                                   num_workers=1)
 
     test_loader = data.DataLoader(dataset=dataset,
                                   batch_size=batch_size,
                                   sampler=test_sampler,  
+                                  drop_last=True,
                                   num_workers=1)
 
-    if True:
+    if False:
         sample_loader = torch.utils.data.DataLoader(
             dataset, batch_size=9, shuffle=False,
             num_workers=num_workers, pin_memory=False
