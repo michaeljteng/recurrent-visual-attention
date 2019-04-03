@@ -87,7 +87,7 @@ misc_arg.add_argument('--random_seed', type=int, default=1,
 misc_arg.add_argument('--data_dir', type=str, default='./data',
                       help='Directory in which data is stored')
 misc_arg.add_argument('--dataset', type=str, default='mnist',
-                      help='Celeba or not')
+                      help='Celeba or not', choices=['mnist', 'celeba', 'celebhq'])
 misc_arg.add_argument('--ckpt_dir', type=str, default='./ckpt',
                       help='Directory in which to save model checkpoints')
 misc_arg.add_argument('--logs_dir', type=str, default='./logs/',
@@ -101,7 +101,9 @@ misc_arg.add_argument('--print_freq', type=int, default=10,
 misc_arg.add_argument('--plot_freq', type=int, default=1,
                       help='How frequently to plot glimpses')
 misc_arg.add_argument('--celeba_image_dir', type=str, default='data/celeba/images')
+misc_arg.add_argument('--celebhq_image_dir', type=str, default='data/celebhq/images')
 misc_arg.add_argument('--attr_path', type=str, default='data/celeba/list_attr_celeba.txt')
+misc_arg.add_argument('--hq_attr_path', type=str, default='data/celebhq/annotations.p')
 misc_arg.add_argument('--rafd_image_dir', type=str, default='data/RaFD/train')
 misc_arg.add_argument('--log_dir', type=str, default='stargan/logs')
 misc_arg.add_argument('--model_save_dir', type=str, default='stargan/models')

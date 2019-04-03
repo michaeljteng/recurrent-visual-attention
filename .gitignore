@@ -2,6 +2,7 @@
 *.mp4
 data/processed/
 data/celeba
+data/celebhq
 data/raw/
 logs/
 ckpt/

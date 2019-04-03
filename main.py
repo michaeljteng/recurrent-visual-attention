@@ -5,6 +5,8 @@ from config import get_config
 from utils import prepare_dirs, save_config
 from data_loader import get_test_loader, get_train_valid_loader
 from celeba_loader import get_train_celeba_loader
+from hq_loader import get_train_celebhq_loader
+
 
 
 def main(config):
@@ -44,6 +46,20 @@ def main(config):
                 config.celeba_image_dir, config.attr_path, config.selected_attrs,
                 config.celeba_crop_size, config.image_size, config.batch_size,
                 'CelebA', config.mode, config.num_workers, config.show_sample
+            )
+    elif config.dataset == 'celebhq':
+        if config.is_train:
+            trainer, validator, _ = get_train_celebhq_loader(
+                config.celebhq_image_dir, config.hq_attr_path, config.selected_attrs,
+                config.celeba_crop_size, config.image_size, config.batch_size,
+                config.mode, config.num_workers, config.show_sample
+            )
+            data_loader = (trainer, validator)
+        else:
+            _, _, data_loader = get_train_celebhq_loader(
+                config.celebhq_image_dir, config.hq_attr_path, config.selected_attrs,
+                config.celeba_crop_size, config.image_size, config.batch_size,
+                config.mode, config.num_workers, config.show_sample
             )
 
     # instantiate trainer

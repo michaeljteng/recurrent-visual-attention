@@ -8,9 +8,12 @@ import torch
 import os
 import random
 import numpy as np
+import pickle
+from os import listdir
+from os.path import isfile, join
 
 
-class CelebA(data.Dataset):
+class CelebAHQ(data.Dataset):
     """Dataset class for the CelebA dataset."""
 
     def __init__(self, image_dir, attr_path, selected_attrs, transform, mode):
@@ -32,26 +35,27 @@ class CelebA(data.Dataset):
             self.num_images = len(self.test_dataset)
 
     def preprocess(self):
-        # TODO GET SPLITS AND PRINT HERE
         """Preprocess the CelebA attribute file."""
-        lines = [line.rstrip() for line in open(self.attr_path, 'r')]
-        all_attr_names = lines[1].split()
-        for i, attr_name in enumerate(all_attr_names):
-            self.attr2idx[attr_name] = i
-            self.idx2attr[i] = attr_name
+        attr_dict = pickle.load( open( self.attr_path, "rb" ) )
+        all_attr_names = list(attr_dict.keys())
 
-        lines = lines[2:]
+        #  onlyfiles = [f for f in listdir(self.image_dir) if isfile(join(self.image_dir, f))]
+
+
+        files = np.arange(30000)
         random.seed(1234)
-        random.shuffle(lines)
-        for i, line in enumerate(lines):
-            split = line.split()
-            filename = split[0]
-            values = split[1:]
+        random.shuffle(files)
 
+        true_counter = 0
+        for i, file_no in enumerate(files):
             label = []
             for attr_name in self.selected_attrs:
-                idx = self.attr2idx[attr_name]
-                label.append(values[idx] == '1')
+                label_value = True if attr_dict[attr_name][file_no] == 1 else False
+                if label_value == True:
+                    true_counter += 1
+                label.append(label_value)
+
+            filename = 'imgHQ' + str(file_no).zfill(5) + '.npy'
 
             if (i+1) < 2000:
                 self.test_dataset.append([filename, label])
@@ -64,21 +68,27 @@ class CelebA(data.Dataset):
         """Return one image and its corresponding attribute label."""
         dataset = self.train_dataset if self.mode == 'train' else self.test_dataset
         filename, label = dataset[index]
-        image = Image.open(os.path.join(self.image_dir, filename))
-        return self.transform(image), torch.LongTensor(label)
+        #  import pdb; pdb.set_trace()
+        image = np.load(os.path.join(self.image_dir, filename))
+        print(image.shape)
+        return torch.Tensor(image[0] / 255), torch.LongTensor(label)
+        transform = []
+        #  transform.append(T.Grayscale(num_output_channels=1))
+        transform.append(T.ToTensor())
+        transform = T.Compose(transform)
+        return transform(image), torch.LongTensor(label)
 
     def __len__(self):
         """Return the number of images."""
         return self.num_images
 
 
-def get_train_celeba_loader(image_dir, 
+def get_train_celebhq_loader(image_dir, 
                             attr_path, 
                             selected_attrs, 
                             crop_size=178, 
                             image_size=128, 
                             batch_size=16, 
-                            dataset='CelebA', 
                             mode='train', 
                             num_workers=1, 
                             valid_size=0.1,
@@ -89,13 +99,13 @@ def get_train_celeba_loader(image_dir,
     transform.append(T.Grayscale(num_output_channels=1))
     if mode == 'train':
         transform.append(T.RandomHorizontalFlip())
-    transform.append(T.CenterCrop(crop_size))
+    #  transform.append(T.CenterCrop(crop_size))
     transform.append(T.Resize(image_size))
     transform.append(T.ToTensor())
     transform.append(T.Normalize(mean=(0.5, 0.5, 0.5), std=(0.5, 0.5, 0.5)))
     transform = T.Compose(transform)
 
-    dataset = CelebA(image_dir, attr_path, selected_attrs, transform, mode)
+    dataset = CelebAHQ(image_dir, attr_path, selected_attrs, transform, mode)
 
     error_msg = "[!] valid_size should be in the range [0, 1]."
     assert ((valid_size >= 0) and (valid_size <= 1)), error_msg
@@ -116,17 +126,17 @@ def get_train_celeba_loader(image_dir,
     train_loader = data.DataLoader(dataset=dataset,
                                   batch_size=batch_size,
                                   sampler=train_sampler,  
-                                  num_workers=num_workers)
+                                  num_workers=1)
 
     valid_loader = data.DataLoader(dataset=dataset,
                                   batch_size=batch_size,
                                   sampler=valid_sampler,  
-                                  num_workers=num_workers)
+                                  num_workers=1)
 
     test_loader = data.DataLoader(dataset=dataset,
                                   batch_size=batch_size,
                                   sampler=test_sampler,  
-                                  num_workers=num_workers)
+                                  num_workers=1)
 
     if True:
         sample_loader = torch.utils.data.DataLoader(
