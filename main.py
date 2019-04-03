@@ -52,14 +52,14 @@ def main(config):
             trainer, validator, _ = get_train_celebhq_loader(
                 config.celebhq_image_dir, config.hq_attr_path, config.selected_attrs,
                 config.celeba_crop_size, config.image_size, config.batch_size,
-                config.mode, config.num_workers, config.show_sample
+                config.mode, config.num_workers, 0.1, config.show_sample
             )
             data_loader = (trainer, validator)
         else:
             _, _, data_loader = get_train_celebhq_loader(
                 config.celebhq_image_dir, config.hq_attr_path, config.selected_attrs,
                 config.celeba_crop_size, config.image_size, config.batch_size,
-                config.mode, config.num_workers, config.show_sample
+                config.mode, config.num_workers, 0.1, config.show_sample
             )
 
     # instantiate trainer

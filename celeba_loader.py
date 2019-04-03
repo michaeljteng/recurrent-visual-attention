@@ -128,7 +128,7 @@ def get_train_celeba_loader(image_dir,
                                   sampler=test_sampler,  
                                   num_workers=num_workers)
 
-    if True:
+    if False:
         sample_loader = torch.utils.data.DataLoader(
             dataset, batch_size=9, shuffle=False,
             num_workers=num_workers, pin_memory=False
@@ -136,7 +136,6 @@ def get_train_celeba_loader(image_dir,
         data_iter = iter(sample_loader)
         images, labels = data_iter.next()
         X = images.numpy()
-        import pdb; pdb.set_trace()
         X = np.transpose(X, [0, 2, 3, 1])
         plot_images(X, labels)
 
