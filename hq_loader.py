@@ -70,13 +70,9 @@ class CelebAHQ(data.Dataset):
         filename, label = dataset[index]
         #  import pdb; pdb.set_trace()
         image = np.load(os.path.join(self.image_dir, filename))
-        print(image.shape)
-        return torch.Tensor(image[0] / 255), torch.LongTensor(label)
-        transform = []
-        #  transform.append(T.Grayscale(num_output_channels=1))
-        transform.append(T.ToTensor())
-        transform = T.Compose(transform)
-        return transform(image), torch.LongTensor(label)
+        #  print(image.shape)
+        image = Image.fromarray(np.rollaxis(image[0], 0,3))
+        return self.transform(image), torch.LongTensor(label)
 
     def __len__(self):
         """Return the number of images."""
@@ -146,7 +142,6 @@ def get_train_celebhq_loader(image_dir,
         data_iter = iter(sample_loader)
         images, labels = data_iter.next()
         X = images.numpy()
-        import pdb; pdb.set_trace()
         X = np.transpose(X, [0, 2, 3, 1])
         plot_images(X, labels)
 
