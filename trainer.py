@@ -81,9 +81,11 @@ class Trainer(object):
         self.resume = config.resume
         self.print_freq = config.print_freq
         self.plot_freq = config.plot_freq
-        self.model_name = 'ram_{}_{}x{}_{}'.format(
-            config.num_glimpses, config.patch_size,
-            config.patch_size, config.glimpse_scale
+        #  import pdb; pdb.set_trace()
+        self.model_name = '{}-{}_gnum:{}_gsize:{}x{}_imgsize:{}x{}'.format(
+            config.dataset, config.selected_attrs[0], 
+            config.num_glimpses, config.patch_size, config.patch_size, 
+            config.image_size, config.image_size
         )
 
         self.plot_dir = './plots/' + self.model_name + '/'
