@@ -38,9 +38,7 @@ class CelebAHQ(data.Dataset):
         """Preprocess the CelebA attribute file."""
         attr_dict = pickle.load( open( self.attr_path, "rb" ) )
         all_attr_names = list(attr_dict.keys())
-
-        #  onlyfiles = [f for f in listdir(self.image_dir) if isfile(join(self.image_dir, f))]
-
+        import pdb; pdb.set_trace()
 
         files = np.arange(30000)
         random.seed(1234)
@@ -68,9 +66,7 @@ class CelebAHQ(data.Dataset):
         """Return one image and its corresponding attribute label."""
         dataset = self.train_dataset if self.mode == 'train' else self.test_dataset
         filename, label = dataset[index]
-        #  import pdb; pdb.set_trace()
         image = np.load(os.path.join(self.image_dir, filename))
-        #  print(image.shape)
         image = Image.fromarray(np.rollaxis(image[0], 0,3))
         return self.transform(image), torch.LongTensor(label)
 

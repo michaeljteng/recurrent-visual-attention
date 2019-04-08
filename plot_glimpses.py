@@ -83,6 +83,7 @@ def main(plot_dir, epoch):
 
     # grab useful params
     size = int(plot_dir.split('_')[2].split('x')[0])
+    #  size = 128
     num_anims = len(locations)
     num_cols = glimpses.shape[0]
     img_shape = glimpses.shape[1]
