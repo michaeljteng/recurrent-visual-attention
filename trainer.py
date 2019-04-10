@@ -58,7 +58,7 @@ class Trainer(object):
             self.num_valid = len(self.valid_loader.sampler.indices)
         else:
             self.test_loader = data_loader
-            self.num_test = len(self.test_loader.dataset)
+            self.num_test = len(self.test_loader.sampler)
         self.num_classes = config.num_classes
         self.num_channels = 1
 
@@ -87,6 +87,11 @@ class Trainer(object):
             config.num_glimpses, config.patch_size, config.patch_size, 
             config.image_size, config.image_size
         )
+
+        self.model_checkpoints = self.ckpt_dir + '/' +  self.model_name + '/'
+        if not os.path.exists(self.model_checkpoints):
+            os.makedirs(self.model_checkpoints)
+
 
         self.plot_dir = './plots/' + self.model_name + '/'
         if not os.path.exists(self.plot_dir):
@@ -153,6 +158,7 @@ class Trainer(object):
         """
         # load the most recent checkpoint
         if self.resume:
+            # TODO !!!!!!!
             self.load_checkpoint(best=False)
 
         print("\n[*] Train on {} samples, validate on {} samples".format(
@@ -431,50 +437,58 @@ class Trainer(object):
         This function should only be called at the very
         end once the model has finished training.
         """
-        correct = 0
-
         # load the best checkpoint
-        self.load_checkpoint(best=self.best)
 
-        for i, (x, y) in enumerate(self.test_loader):
-            if self.use_gpu:
-                x, y = x.cuda(), y.cuda()
+        epoch = 1 
+        print("Testing trained model with ", len(self.test_loader), " examples")
+        while(True):
             try:
-                x, y = Variable(x, volatile=True), Variable(y.squeeze(1))
+                self.load_checkpoint(epoch=epoch)
             except:
-                x, y = Variable(x, volatile=True), Variable(y)
+                break
 
-            # duplicate 10 times
-            x = x.repeat(self.M, 1, 1, 1)
+            correct = 0
+            for i, (x, y) in enumerate(self.test_loader):
+                with torch.no_grad():
+                    if self.use_gpu:
+                        x, y = x.cuda(), y.cuda()
+                    try:
+                        x, y = Variable(x), Variable(y.squeeze(1))
+                    except:
+                        x, y = Variable(x), Variable(y)
 
-            # initialize location vector and hidden state
-            self.batch_size = x.shape[0]
-            h_t, l_t = self.reset()
+                    # duplicate 10 times
+                    x = x.repeat(self.M, 1, 1, 1)
 
-            # extract the glimpses
-            for t in range(self.num_glimpses - 1):
-                # forward pass through model
-                h_t, l_t, b_t, p = self.model(x, l_t, h_t)
+                    # initialize location vector and hidden state
+                    self.batch_size = x.shape[0]
+                    h_t, l_t = self.reset()
 
-            # last iteration
-            h_t, l_t, b_t, log_probas, p = self.model(
-                x, l_t, h_t, last=True
+                    # extract the glimpses
+                    for t in range(self.num_glimpses - 1):
+                        # forward pass through model
+                        h_t, l_t, b_t, p = self.model(x, l_t, h_t)
+
+                    # last iteration
+                    h_t, l_t, b_t, log_probas, p = self.model(
+                        x, l_t, h_t, last=True
+                    )
+
+                    log_probas = log_probas.view(
+                        self.M, -1, log_probas.shape[-1]
+                    )
+                    log_probas = torch.mean(log_probas, dim=0)
+
+                    pred = log_probas.data.max(1, keepdim=True)[1]
+                    correct += pred.eq(y.data.view_as(pred)).cpu().sum()
+
+            perc = (100. * correct) / (self.num_test)
+            error = 100 - perc
+            print(
+                '[*] Test Acc: {}/{} ({:.2f}% - {:.2f}%)\n'.format(
+                    correct, self.num_test, perc, error)
             )
-
-            log_probas = log_probas.view(
-                self.M, -1, log_probas.shape[-1]
-            )
-            log_probas = torch.mean(log_probas, dim=0)
-
-            pred = log_probas.data.max(1, keepdim=True)[1]
-            correct += pred.eq(y.data.view_as(pred)).cpu().sum()
-
-        perc = (100. * correct) / (self.num_test)
-        error = 100 - perc
-        print(
-            '[*] Test Acc: {}/{} ({:.2f}% - {:.2f}%)'.format(
-                correct, self.num_test, perc, error)
-        )
+            epoch += 1
 
     def save_checkpoint(self, state, is_best):
         """
@@ -487,17 +501,17 @@ class Trainer(object):
         """
         # print("[*] Saving model to {}".format(self.ckpt_dir))
 
-        filename = self.model_name + '_ckpt.pth.tar'
-        ckpt_path = os.path.join(self.ckpt_dir, filename)
+        filename = self.model_name + '_' + str(state['epoch']) + '_ckpt.pth.tar'
+        ckpt_path = os.path.join(self.model_checkpoints, filename)
         torch.save(state, ckpt_path)
 
         if is_best:
             filename = self.model_name + '_model_best.pth.tar'
             shutil.copyfile(
-                ckpt_path, os.path.join(self.ckpt_dir, filename)
+                ckpt_path, os.path.join(self.model_checkpoints, filename)
             )
 
-    def load_checkpoint(self, best=False):
+    def load_checkpoint(self, epoch=1):
         """
         Load the best copy of a model. This is useful for 2 cases:
 
@@ -510,12 +524,12 @@ class Trainer(object):
           to evaluate your model on the test data. Else, set to False in
           which case the most recent version of the checkpoint is used.
         """
-        print("[*] Loading model from {}".format(self.ckpt_dir))
+        print("[*] Loading model from {}".format(self.model_checkpoints))
 
-        filename = self.model_name + '_ckpt.pth.tar'
-        if best:
-            filename = self.model_name + '_model_best.pth.tar'
-        ckpt_path = os.path.join(self.ckpt_dir, filename)
+        filename = self.model_name + '_' + str(epoch) + '_ckpt.pth.tar'
+        #  if best:
+        #      filename = self.model_name + '_model_best.pth.tar'
+        ckpt_path = os.path.join(self.model_checkpoints, filename)
         ckpt = torch.load(ckpt_path)
 
         # load variables from checkpoint
@@ -524,14 +538,14 @@ class Trainer(object):
         self.model.load_state_dict(ckpt['model_state'])
         self.optimizer.load_state_dict(ckpt['optim_state'])
 
-        if best:
-            print(
-                "[*] Loaded {} checkpoint @ epoch {} "
-                "with best valid acc of {:.3f}".format(
-                    filename, ckpt['epoch'], ckpt['best_valid_acc'])
-            )
-        else:
-            print(
+        #  if best:
+        #      print(
+        #          "[*] Loaded {} checkpoint @ epoch {} "
+        #          "with best valid acc of {:.3f}".format(
+        #              filename, ckpt['epoch'], ckpt['best_valid_acc'])
+        #      )
+        #  else: 
+        print(
                 "[*] Loaded {} checkpoint @ epoch {}".format(
                     filename, ckpt['epoch'])
             )
