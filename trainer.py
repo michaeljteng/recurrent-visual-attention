@@ -4,6 +4,9 @@ import torch.nn.functional as F
 from torch.autograd import Variable
 import torch.optim as optim
 from torch.optim.lr_scheduler import ReduceLROnPlateau
+import matplotlib.pyplot as plt
+import numpy as np
+from scipy import stats
 
 import os
 import time
@@ -14,6 +17,7 @@ from tqdm import tqdm
 from utils import AverageMeter
 from model import RecurrentAttention
 from tensorboard_logger import configure, log_value
+from utils import denormalize, bounding_box
 
 
 class Trainer(object):
@@ -82,6 +86,7 @@ class Trainer(object):
         self.resume = config.resume
         self.print_freq = config.print_freq
         self.plot_freq = config.plot_freq
+        self.image_size = config.image_size
         #  import pdb; pdb.set_trace()
         self.model_name = '{}-{}_gnum:{}_gsize:{}x{}_imgsize:{}x{}'.format(
             config.dataset, config.selected_attrs[0], 
@@ -193,9 +198,9 @@ class Trainer(object):
             # check for improvement
             if not is_best:
                 self.counter += 1
-            if self.counter > self.train_patience:
-                print("[!] No improvement in a while, stopping training.")
-                return
+            #  if self.counter > self.train_patience:
+            #      print("[!] No improvement in a while, stopping training.")
+            #      return
             self.best_valid_acc = max(valid_acc, self.best_valid_acc)
             self.save_checkpoint(
                 {'epoch': epoch + 1,
@@ -492,6 +497,64 @@ class Trainer(object):
                     correct, self.num_test, perc, error)
             )
             epoch += 1
+
+    def kde(self):
+        epoch = 5
+        print("plotting kde of trained model with ", len(self.test_loader), " examples")
+        self.load_checkpoint(epoch=epoch)
+        fig, ax = plt.subplots()
+
+        #  for key, value in model_preds[model].items():
+        #      fly_kde = value[fly_idx, :, :2]
+        #      t_5_x.append(fly_kde[timestep, 0])
+
+        #      t_5_y.append(fly_kde[timestep, 1])
+        img_min = 0
+        img_max = self.image_size
+
+        #  m1 = np.array(t_5_x)
+        #  m2 = np.array(t_5_y)
+        X, Y = np.mgrid[img_min:img_max:100j, img_min:img_max:100j]
+        positions = np.vstack([X.ravel(), Y.ravel()])
+
+        all_locations = torch.Tensor([])
+        for i, (x, y) in enumerate(self.test_loader):
+            with torch.no_grad():
+                if self.use_gpu:
+                    x, y = x.cuda(), y.cuda()
+                try:
+                    x, y = Variable(x), Variable(y.squeeze(1))
+                except:
+                    x, y = Variable(x), Variable(y)
+
+                # duplicate 10 times
+                #  x = x.repeat(self.M, 1, 1, 1)
+
+                # initialize location vector and hidden state
+                self.batch_size = x.shape[0]
+                h_t, l_t = self.reset()
+
+                # extract the glimpses
+                for t in range(self.num_glimpses - 1):
+                    # forward pass through model
+                    h_t, l_t, b_t, p = self.model(x, l_t, h_t)
+
+
+                # last iteration
+                h_t, l_t, b_t, log_probas, p = self.model(
+                    x, l_t, h_t, last=True
+                )
+
+                all_locations = torch.cat((all_locations, l_t))
+
+        coords = denormalize(self.image_size, all_locations)
+        coords = coords + (self.patch_size / 2)
+        values = torch.stack((coords[:, 0], (self.image_size - coords[:, 1])))
+        kernel = stats.gaussian_kde(values)
+        Z = np.reshape(kernel(positions).T, X.shape)
+        im = ax.imshow(np.rot90(Z), cmap=plt.cm.gist_earth_r,
+                  extent=[0, 256, 0, 256])
+        plt.show()
 
     def save_checkpoint(self, state, is_best):
         """

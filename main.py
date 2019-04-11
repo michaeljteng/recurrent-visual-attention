@@ -72,7 +72,8 @@ def main(config):
 
     # or load a pretrained model and test
     else:
-        trainer.test()
+        #  trainer.test()
+        trainer.kde()
 
 
 if __name__ == '__main__':

@@ -91,7 +91,6 @@ def main(plot_dir, epoch):
 
     # denormalize coordinates
     coords = [denormalize(img_shape, l) for l in locations]
-    import pdb; pdb.set_trace()
 
     fig, axs = plt.subplots(nrows=1, ncols=num_cols)
     # fig.set_dpi(100)
