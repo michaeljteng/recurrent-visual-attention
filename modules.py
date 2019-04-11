@@ -103,8 +103,8 @@ class retina(object):
             from_y, to_y = patch_y[i], patch_y[i] + size
 
             # cast to ints
-            from_x, to_x = from_x.item(), to_x.item()
-            from_y, to_y = from_y.item(), to_y.item()
+            from_x, to_x = from_x.data.item(), to_x.data.item()
+            from_y, to_y = from_y.data.item(), to_y.data.item()
 
             # pad tensor in case exceeds
             if self.exceeds(from_x, to_x, from_y, to_y, T):
@@ -194,7 +194,6 @@ class glimpse_network(nn.Module):
         # glimpse layer
         D_in = k*g*g*c
         self.fc1 = nn.Linear(D_in, h_g)
-        #  import pdb; pdb.set_trace()
 
         # location layer
         D_in = 2
@@ -211,7 +210,6 @@ class glimpse_network(nn.Module):
         l_t_prev = l_t_prev.view(l_t_prev.size(0), -1)
 
         # feed phi and l to respective fc layers
-        #  import pdb; pdb.set_trace()
         phi_out = F.relu(self.fc1(phi))
         l_out = F.relu(self.fc2(l_t_prev))
 
@@ -334,24 +332,45 @@ class location_network(nn.Module):
     - mu: a 2D vector of shape (B, 2).
     - l_t: a 2D vector of shape (B, 2).
     """
-    def __init__(self, input_size, output_size, std):
+    def __init__(self, input_size, output_size, std, constrain_mu):
         super(location_network, self).__init__()
         self.std = std
         self.fc = nn.Linear(input_size, output_size)
+        self.constrain_mu = constrain_mu
 
     def forward(self, h_t):
         # compute mean
-        mu = torch.tanh(self.fc(h_t.detach()))
+        mu = self.fc(h_t.detach())
+        if self.constrain_mu:
+            mu = torch.tanh(mu)
 
         # reparametrization trick
         noise = torch.zeros_like(mu)
         noise.data.normal_(std=self.std)
-        l_t = mu + noise
+        pre_tanh = mu + noise
 
         # bound between [-1, 1]
-        l_t = torch.tanh(l_t)
+        l_t = torch.tanh(pre_tanh)
 
-        return mu, l_t
+        return mu, l_t, pre_tanh
+
+class discrete_location_network(nn.Module):
+    """
+    like `location_network` but outputs categorical distribution over
+    `output_size` locations
+    """
+    def __init__(self, input_size, output_size):
+        super(discrete_location_network, self).__init__()
+        self.fc = nn.Sequential(
+            nn.Linear(input_size, 32),
+            nn.Linear(32, output_size),
+            nn.Softmax(dim=1))
+
+    def forward(self, h_t, fix_l_t=None):
+        probs = self.fc(h_t.detach())
+        dist = torch.distributions.Categorical(probs=probs)
+        l_t = dist.sample() if fix_l_t is None else fix_l_t
+        return l_t, dist
 
 
 class baseline_network(nn.Module):
