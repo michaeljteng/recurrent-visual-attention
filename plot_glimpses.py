@@ -3,6 +3,7 @@ import argparse
 import numpy as np
 import matplotlib.pyplot as plt
 import matplotlib.animation as animation
+import cv2
 
 from utils import denormalize, bounding_box
 
@@ -82,7 +83,7 @@ def main(plot_dir, epoch):
     glimpses = np.concatenate(glimpses)
 
     # grab useful params
-    size = int(plot_dir.split('_')[2].split('x')[0])
+    size = int(plot_dir.split('gsize:')[1].split('x')[0])
     #  size = 128
     num_anims = len(locations)
     num_cols = glimpses.shape[0]
@@ -90,14 +91,22 @@ def main(plot_dir, epoch):
 
     # denormalize coordinates
     coords = [denormalize(img_shape, l) for l in locations]
+    import pdb; pdb.set_trace()
 
     fig, axs = plt.subplots(nrows=1, ncols=num_cols)
     # fig.set_dpi(100)
 
     # plot base image
-    #  import pdb; pdb.set_trace()
+    if len(glimpses[0].shape) == 2:
+        grayscale = True
+    else:
+        grayscale = False
     for j, ax in enumerate(axs.flat):
-        ax.imshow(glimpses[j], cmap="Greys_r")
+        #  import pdb; pdb.set_trace()
+        if grayscale:
+            ax.imshow(glimpses[j], cmap="Greys_r")
+        else:
+            ax.imshow(np.transpose(glimpses[j]))
         ax.get_xaxis().set_visible(False)
         ax.get_yaxis().set_visible(False)
     #

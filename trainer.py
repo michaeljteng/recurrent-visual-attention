@@ -60,7 +60,8 @@ class Trainer(object):
             self.test_loader = data_loader
             self.num_test = len(self.test_loader.sampler)
         self.num_classes = config.num_classes
-        self.num_channels = 1
+        self.num_channels = 1 
+        #  self.num_channels = 1 if config.dataset == 'mnist' else 3
 
         # training params
         self.epochs = config.epochs
@@ -91,7 +92,6 @@ class Trainer(object):
         self.model_checkpoints = self.ckpt_dir + '/' +  self.model_name + '/'
         if not os.path.exists(self.model_checkpoints):
             os.makedirs(self.model_checkpoints)
-
 
         self.plot_dir = './plots/' + self.model_name + '/'
         if not os.path.exists(self.plot_dir):
@@ -243,6 +243,8 @@ class Trainer(object):
                 # extract the glimpses
                 locs = []
                 log_pi = []
+                log_p_targets = []
+                kl_divs = []
                 baselines = []
                 for t in range(self.num_glimpses - 1):
                     # forward pass through model
@@ -468,6 +470,7 @@ class Trainer(object):
                     for t in range(self.num_glimpses - 1):
                         # forward pass through model
                         h_t, l_t, b_t, p = self.model(x, l_t, h_t)
+                        import pdb; pdb.set_trace()
 
                     # last iteration
                     h_t, l_t, b_t, log_probas, p = self.model(
