@@ -14,7 +14,7 @@ import shutil
 import pickle
 
 from tqdm import tqdm
-from utils import AverageMeter
+from utils import AverageMeter, arctanh
 from model import RecurrentAttention
 from tensorboard_logger import configure, log_value
 from utils import denormalize, bounding_box
@@ -52,6 +52,7 @@ class Trainer(object):
 
         # reinforce params
         self.std = config.std
+        self.constrain_mu = config.constrain_mu
         self.M = config.M
 
         # data params
@@ -69,6 +70,8 @@ class Trainer(object):
 
         # training params
         self.epochs = config.epochs
+        self.use_attention_targets = config.use_attention_targets
+        self.attention_target_weight = config.attention_target_weight
         self.start_epoch = 0
         self.momentum = config.momentum
         self.lr = config.init_lr
@@ -87,7 +90,6 @@ class Trainer(object):
         self.print_freq = config.print_freq
         self.plot_freq = config.plot_freq
         self.image_size = config.image_size
-        #  import pdb; pdb.set_trace()
         self.model_name = '{}-{}_gnum:{}_gsize:{}x{}_imgsize:{}x{}'.format(
             config.dataset, config.selected_attrs[0], 
             config.num_glimpses, config.patch_size, config.patch_size, 
@@ -114,7 +116,7 @@ class Trainer(object):
         self.model = RecurrentAttention(
             self.patch_size, self.num_patches, self.glimpse_scale,
             self.num_channels, self.loc_hidden, self.glimpse_hidden,
-            self.std, self.hidden_size, self.num_classes,
+            self.std, self.constrain_mu, self.hidden_size, self.num_classes,
         )
         if self.use_gpu:
             self.model.cuda()
@@ -148,10 +150,11 @@ class Trainer(object):
         h_t = torch.zeros(self.batch_size, self.hidden_size)
         h_t = Variable(h_t).type(dtype)
 
-        l_t = torch.Tensor(self.batch_size, 2).uniform_(-1, 1)
-        l_t = Variable(l_t).type(dtype)
-
-        return h_t, l_t
+        #  l_t = torch.Tensor(self.batch_size, 2).uniform_(-1, 1)
+        #  l_t = Variable(l_t).type(dtype)
+        #
+        #  return h_t, l_t
+        return h_t
 
     def train(self):
         """
@@ -227,10 +230,8 @@ class Trainer(object):
         with tqdm(total=self.num_train) as pbar:
             for i, data_batch in enumerate(self.train_loader):
                 import pdb; pdb.set_trace()
-                if self.use_attention_targets:
-                    x, y, attention_targets, posterior_targets = data_batch
-                else:
                     x, y = data_batch
+                x, y = data_batch
 
                 # if i == 0:
                 #     print(y[0])
@@ -267,7 +268,7 @@ class Trainer(object):
                     h_t, l_t, b_t, log_probas, loc_dist = self.model(x, h_t, last=True, replace_lt=None)    # last=True means it always makes predictions
 
                     p_sampled = loc_dist.log_prob(l_t)
-(
+
                     # store
                     locs.append(l_t[0:9])
                     baselines.append(b_t)
@@ -383,57 +384,55 @@ class Trainer(object):
         accs = AverageMeter()
 
         for i, (x, y) in enumerate(self.valid_loader):
-            if self.use_gpu:
-                x, y = x.cuda(), y.cuda()
-            try:
-                x, y = Variable(x), Variable(y.squeeze(1))
-            except:
-                x, y = Variable(x), Variable(y)
+            #  if self.use_gpu:
+            #      x, y = x.cuda(), y.cuda()
+            #  try:
+            #      x, y = Variable(x), Variable(y.squeeze(1))
+            #  except:
+            x, y = Variable(x), Variable(y)
 
             # duplicate 10 times
             x = x.repeat(self.M, 1, 1, 1)
+            y = y.repeat(self.M)
 
             # initialize location vector and hidden state
             self.batch_size = x.shape[0]
-            h_t, l_t = self.reset()
+            h_t = self.reset()
 
             # extract the glimpses
             log_pi = []
             baselines = []
             for t in range(self.num_glimpses - 1):
                 # forward pass through model
-                h_t, l_t, b_t, p = self.model(x, l_t, h_t)
+                h_t, unnormed_l_t, b_t, loc_dist = self.model(x, h_t)
 
                 # store
                 baselines.append(b_t)
-                log_pi.append(p)
+                log_pi.append(loc_dist.log_prob(unnormed_l_t))
 
             # last iteration
-            h_t, l_t, b_t, log_probas, p = self.model(
-                x, l_t, h_t, last=True
+            h_t, unnormed_l_t, b_t, log_probas, loc_dist = self.model(
+                x, h_t, last=True
             )
-            log_pi.append(p)
+            log_pi.append(loc_dist.log_prob(unnormed_l_t))
             baselines.append(b_t)
 
             # convert list to tensors and reshape
             baselines = torch.stack(baselines).transpose(1, 0)
             log_pi = torch.stack(log_pi).transpose(1, 0)
 
-            # average
+            # stack data points and mc samples together
             log_probas = log_probas.view(
-                self.M, -1, log_probas.shape[-1]
+              -1, log_probas.shape[-1]
             )
-            log_probas = torch.mean(log_probas, dim=0)
 
             baselines = baselines.contiguous().view(
-                self.M, -1, baselines.shape[-1]
+              -1, baselines.shape[-1]
             )
-            baselines = torch.mean(baselines, dim=0)
 
             log_pi = log_pi.contiguous().view(
-                self.M, -1, log_pi.shape[-1]
+                -1, log_pi.shape[-1]
             )
-            log_pi = torch.mean(log_pi, dim=0)
 
             # calculate reward
             predicted = torch.max(log_probas, 1)[1]
@@ -457,14 +456,14 @@ class Trainer(object):
             acc = 100 * (correct.sum() / len(y))
 
             # store
-            losses.update(loss.item(), x.size()[0])
-            accs.update(acc.item(), x.size()[0])
+            losses.update(loss.data.item(), x.size()[0])
+            accs.update(acc.data.item(), x.size()[0])
 
-            # log to tensorboard
-            if self.use_tensorboard:
-                iteration = epoch*len(self.valid_loader) + i
-                log_value('valid_loss', losses.avg, iteration)
-                log_value('valid_acc', accs.avg, iteration)
+        # log to tensorboard
+        if self.use_tensorboard:
+            iteration = (epoch+1)*self.num_train
+            log_value('valid_loss', losses.avg, iteration)
+            log_value('valid_acc', accs.avg, iteration)
 
         return losses.avg, accs.avg
 
@@ -505,7 +504,6 @@ class Trainer(object):
                     for t in range(self.num_glimpses - 1):
                         # forward pass through model
                         h_t, l_t, b_t, p = self.model(x, l_t, h_t)
-                        import pdb; pdb.set_trace()
 
                     # last iteration
                     h_t, l_t, b_t, log_probas, p = self.model(
