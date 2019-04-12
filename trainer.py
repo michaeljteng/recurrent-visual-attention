@@ -446,7 +446,10 @@ class Trainer(object):
         """
         # load the best checkpoint
 
-        epoch = 1 
+        epoch = 1
+        f1s = []
+        accs = []
+
         print("Testing trained model with ", len(self.test_loader), " examples")
         while(True):
             try:
@@ -455,6 +458,9 @@ class Trainer(object):
                 break
 
             correct = 0
+            f1_correct  = 0
+            f1_reported  = 0
+            f1_relevant  = 0
             for i, (x, y) in enumerate(self.test_loader):
                 with torch.no_grad():
                     if self.use_gpu:
@@ -475,7 +481,6 @@ class Trainer(object):
                     for t in range(self.num_glimpses - 1):
                         # forward pass through model
                         h_t, l_t, b_t, p = self.model(x, l_t, h_t)
-                        import pdb; pdb.set_trace()
 
                     # last iteration
                     h_t, l_t, b_t, log_probas, p = self.model(
@@ -490,13 +495,38 @@ class Trainer(object):
                     pred = log_probas.data.max(1, keepdim=True)[1]
                     correct += pred.eq(y.data.view_as(pred)).cpu().sum()
 
+                    preds = pred.flatten()
+                    total_reported = pred.sum()
+                    total_relevant = y.sum()
+
+                    preds[preds == 0] = 2
+                    total_correct = preds.eq(y.cpu()).sum()
+
+                    f1_correct += total_correct
+                    f1_reported += total_reported
+                    f1_relevant += total_relevant
+
             perc = (100. * correct) / (self.num_test)
             error = 100 - perc
+            precision = float(f1_correct) / float(f1_reported)
+            recall = float(f1_correct) / float(f1_relevant)
+            
+            f1_score = 2 * (precision * recall / (precision + recall))
+            accuracy = float(correct) / float(self.num_test)
+
             print(
-                '[*] Test Acc: {}/{} ({:.2f}% - {:.2f}%)\n'.format(
-                    correct, self.num_test, perc, error)
+                    '[*] Test Acc: {}/{} ({:.2f}% - {:.2f}%) : F1 Score - {} \n'.format(
+
+                    correct, self.num_test, perc, error, f1_score)
             )
             epoch += 1
+            f1s.append(f1_score)
+            accs.append(accuracy)
+
+        fig, ax = plt.subplots()
+        ax.plot(np.arange(len(f1s)), f1s)
+        ax.plot(np.arange(len(accs)), accs)
+        plt.show()
 
     def kde(self):
         epoch = 5
