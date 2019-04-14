@@ -228,10 +228,20 @@ class Trainer(object):
 
         tic = time.time()
         with tqdm(total=self.num_train) as pbar:
-            for i, data_batch in enumerate(self.train_loader):
-                import pdb; pdb.set_trace()
-                    x, y = data_batch
-                x, y = data_batch
+            for i, (x,y) in enumerate(self.train_loader):
+                    #  import pdb; pdb.set_trace()
+                    #  x, y, attention_targets, posterior_targets = data_batch
+                #  else:
+                    #  x, y = data_batch
+                if self.use_gpu:
+                    x, y = x.cuda(), y.cuda()
+                try:
+                    x, y = Variable(x), Variable(y.squeeze(1))
+                except:
+                    x, y = Variable(x), Variable(y)
+                #  x, y = data_batch
+                attention_targets = None
+                posterior_targets = None
 
                 # if i == 0:
                 #     print(y[0])
@@ -263,8 +273,7 @@ class Trainer(object):
                 baselines = []
                 for t in range(self.num_glimpses):
                     # forward pass through model
-                    l_t_targets = attention_targets[:, t] if self.use_attention_targets else None
-                                                                                        #### NOT FIXING LOCATIONS
+                    #  l_t_targets = attention_targets[:, t] if self.use_attention_targets else None
                     h_t, l_t, b_t, log_probas, loc_dist = self.model(x, h_t, last=True, replace_lt=None)    # last=True means it always makes predictions
 
                     p_sampled = loc_dist.log_prob(l_t)
@@ -296,6 +305,7 @@ class Trainer(object):
                 # calculate reward
                 predicted = torch.max(log_probas, 1)[1]
                 R = (predicted.detach() == y).float()
+                #  import pdb; pdb.set_trace()
                 R = R.unsqueeze(1).repeat(1, self.num_glimpses)
 
                 # compute losses for differentiable modules
@@ -384,12 +394,12 @@ class Trainer(object):
         accs = AverageMeter()
 
         for i, (x, y) in enumerate(self.valid_loader):
-            #  if self.use_gpu:
-            #      x, y = x.cuda(), y.cuda()
-            #  try:
-            #      x, y = Variable(x), Variable(y.squeeze(1))
-            #  except:
-            x, y = Variable(x), Variable(y)
+            if self.use_gpu:
+                x, y = x.cuda(), y.cuda()
+            try:
+                x, y = Variable(x), Variable(y.squeeze(1))
+            except:
+                x, y = Variable(x), Variable(y)
 
             # duplicate 10 times
             x = x.repeat(self.M, 1, 1, 1)
