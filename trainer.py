@@ -485,7 +485,10 @@ class Trainer(object):
         """
         # load the best checkpoint
 
-        epoch = 1 
+        epoch = 1
+        f1s = []
+        accs = []
+
         print("Testing trained model with ", len(self.test_loader), " examples")
         while(True):
             try:
@@ -494,6 +497,9 @@ class Trainer(object):
                 break
 
             correct = 0
+            f1_correct  = 0
+            f1_reported  = 0
+            f1_relevant  = 0
             for i, (x, y) in enumerate(self.test_loader):
                 with torch.no_grad():
                     if self.use_gpu:
@@ -508,16 +514,16 @@ class Trainer(object):
 
                     # initialize location vector and hidden state
                     self.batch_size = x.shape[0]
-                    h_t, l_t = self.reset()
+                    h_t = self.reset()
 
                     # extract the glimpses
                     for t in range(self.num_glimpses - 1):
                         # forward pass through model
-                        h_t, l_t, b_t, p = self.model(x, l_t, h_t)
+                        h_t, l_t, b_t, p, ld = self.model(x, h_t, last=True, replace_lt=None)
 
                     # last iteration
                     h_t, l_t, b_t, log_probas, p = self.model(
-                        x, l_t, h_t, last=True
+                        x, h_t, last=True, replace_lt=None
                     )
 
                     log_probas = log_probas.view(
@@ -528,13 +534,45 @@ class Trainer(object):
                     pred = log_probas.data.max(1, keepdim=True)[1]
                     correct += pred.eq(y.data.view_as(pred)).cpu().sum()
 
+                    preds = pred.flatten()
+                    total_reported = pred.sum()
+                    total_relevant = y.sum()
+
+                    preds[preds == 0] = 2
+                    total_correct = preds.eq(y.cpu()).sum()
+
+                    f1_correct += total_correct
+                    f1_reported += total_reported
+                    f1_relevant += total_relevant
+
             perc = (100. * correct) / (self.num_test)
             error = 100 - perc
+            try:
+                precision = float(f1_correct) / float(f1_reported)
+            except:
+                precision = 0.0
+
+            recall = float(f1_correct) / float(f1_relevant)
+            
+            try:
+                f1_score = 2 * (precision * recall / (precision + recall))
+            except:
+                f1_score = 0.0
+            accuracy = float(correct) / float(self.num_test)
+
             print(
-                '[*] Test Acc: {}/{} ({:.2f}% - {:.2f}%)\n'.format(
-                    correct, self.num_test, perc, error)
+                    '[*] Test Acc: {}/{} ({:.2f}% - {:.2f}%) : F1 Score - {} \n'.format(
+
+                    correct, self.num_test, perc, error, f1_score)
             )
             epoch += 1
+            f1s.append(f1_score)
+            accs.append(accuracy)
+
+        fig, ax = plt.subplots()
+        ax.plot(np.arange(len(f1s)), f1s)
+        ax.plot(np.arange(len(accs)), accs)
+        plt.show()
 
     def kde(self):
         epoch = 5
@@ -570,17 +608,17 @@ class Trainer(object):
 
                 # initialize location vector and hidden state
                 self.batch_size = x.shape[0]
-                h_t, l_t = self.reset()
+                h_t = self.reset()
 
                 # extract the glimpses
                 for t in range(self.num_glimpses - 1):
                     # forward pass through model
-                    h_t, l_t, b_t, p = self.model(x, l_t, h_t)
+                    h_t, l_t, b_t, _, _ = self.model(x, h_t, last=True, replace_lt=None)    # last=True means it always makes predictions
 
 
                 # last iteration
                 h_t, l_t, b_t, log_probas, p = self.model(
-                    x, l_t, h_t, last=True
+                    x, h_t, last=True, replace_lt=None
                 )
 
                 all_locations = torch.cat((all_locations, l_t))
