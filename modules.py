@@ -354,7 +354,6 @@ class location_network(nn.Module):
 
         return mu, l_t, pre_tanh
 
-
 class discrete_location_network(nn.Module):
     """
     like `location_network` but outputs categorical distribution over
@@ -367,10 +366,10 @@ class discrete_location_network(nn.Module):
             nn.Linear(32, output_size),
             nn.Softmax(dim=1))
 
-    def forward(self, h_t):
+    def forward(self, h_t, fix_l_t=None):
         probs = self.fc(h_t.detach())
         dist = torch.distributions.Categorical(probs=probs)
-        l_t = dist.sample()
+        l_t = dist.sample() if fix_l_t is None else fix_l_t
         return l_t, dist
 
 
