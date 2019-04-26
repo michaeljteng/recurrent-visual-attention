@@ -7,9 +7,10 @@ from data_loader import get_test_loader, get_train_valid_loader
 from celeba_loader import get_train_celeba_loader
 from hq_loader import get_train_celebhq_loader
 
+from experiment_utils import track_metadata, save_details
 
-
-def main(config):
+@track_metadata
+def main(config, get_metadata=None):
 
     # ensure directories are setup
     prepare_dirs(config)
@@ -68,7 +69,8 @@ def main(config):
     # either train
     if config.is_train:
         save_config(config)
-        trainer.train()
+        losses = trainer.train()
+        save_details(config, get_metadata(), losses)
 
     # or load a pretrained model and test
     else:

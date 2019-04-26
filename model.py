@@ -10,6 +10,7 @@ from modules import glimpse_network, core_network
 from modules import action_network, discrete_location_network, location_network
 from attention_target_dataset import normalize_attention_loc
 
+
 class RecurrentAttention(nn.Module):
     """
     A Recurrent Model of Visual Attention (RAM) [1].
