@@ -78,8 +78,14 @@ train_arg.add_argument('--init_lr', type=float, default=3e-4,
                        help='Initial learning rate value')
 train_arg.add_argument('--lr_patience', type=int, default=10,
                        help='Number of epochs to wait before reducing lr')
-train_arg.add_argument('--train_patience', type=int, default=50,
+train_arg.add_argument('--train_patience', type=int, default=200,
                        help='Number of epochs to wait before stopping train')
+train_arg.add_argument('--train_per_valid', type=int, default=10000,
+                       help='Number of training traces to use between validations.')
+train_arg.add_argument('--supervised_attention_prob', type=float, default=0.2,
+                       help='Proportion of time to use targets for training the attention mechanism.')
+train_arg.add_argument('--entropy_reinforce_loss', type=str2bool, default=False,
+                       help='Use REINFORCE to force model to minimise entropy at each step.')
 
 
 # other params

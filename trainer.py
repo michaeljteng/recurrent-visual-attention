@@ -16,6 +16,7 @@ import pickle
 from tqdm import tqdm
 from utils import AverageMeter, arctanh
 from model import RecurrentAttention
+from modules import action_network
 from tensorboard_logger import configure, log_value
 from utils import denormalize, bounding_box
 
@@ -39,6 +40,14 @@ class Trainer(object):
         """
         self.config = config
 
+        # loss trackers
+        self.traces_at_train_loss = []
+        self.traces_at_valid_loss = []
+        self.train_losses = []
+        self.valid_losses = []
+        self.train_accs = []
+        self.valid_accs = []
+
         # glimpse network params
         self.patch_size = config.patch_size
         self.glimpse_scale = config.glimpse_scale
@@ -60,6 +69,7 @@ class Trainer(object):
             self.train_loader = data_loader[0]
             self.valid_loader = data_loader[1]
             self.num_train = len(self.train_loader.sampler.indices)
+            self.train_per_valid = config.train_per_valid
             self.num_valid = len(self.valid_loader.sampler.indices)
         else:
             self.test_loader = data_loader
@@ -70,11 +80,13 @@ class Trainer(object):
 
         # training params
         self.epochs = config.epochs
-        self.use_attention_targets = config.use_attention_targets
+        #  self.use_attention_targets = config.use_attention_targets
+        self.supervised_attention_prob = config.supervised_attention_prob
         self.attention_target_weight = config.attention_target_weight
         self.start_epoch = 0
         self.momentum = config.momentum
         self.lr = config.init_lr
+        self.entropy_reinforce = config.entropy_reinforce_loss
 
         # misc params
         self.use_gpu = config.use_gpu
@@ -124,6 +136,12 @@ class Trainer(object):
         print('[*] Number of model parameters: {:,}'.format(
             sum([p.data.nelement() for p in self.model.parameters()])))
 
+        if self.entropy_reinforce:
+            self.extra_classifiers = torch.nn.ModuleList(
+                [action_network(self.hidden_size, 10)
+                 for _ in range(self.num_glimpses-1)]
+            )
+
         # # initialize optimizer and scheduler
         # self.optimizer = optim.SGD(
         #     self.model.parameters(), lr=self.lr, momentum=self.momentum,
@@ -150,10 +168,6 @@ class Trainer(object):
         h_t = torch.zeros(self.batch_size, self.hidden_size)
         h_t = Variable(h_t).type(dtype)
 
-        #  l_t = torch.Tensor(self.batch_size, 2).uniform_(-1, 1)
-        #  l_t = Variable(l_t).type(dtype)
-        #
-        #  return h_t, l_t
         return h_t
 
     def train(self):
@@ -166,11 +180,11 @@ class Trainer(object):
         """
         # load the most recent checkpoint
         if self.resume:
-            # TODO !!!!!!!
             self.load_checkpoint(best=False)
 
-        print("\n[*] Train on {} samples, validate on {} samples".format(
-            self.num_train, self.num_valid)
+        print("\n[*] Train on {} samples between validations, \
+              validate on {} samples".format(
+            self.train_per_valid, self.num_valid)
         )
 
         for epoch in range(self.start_epoch, self.epochs):
@@ -213,6 +227,14 @@ class Trainer(object):
                  }, is_best
             )
 
+        training_details = {"train": (self.traces_at_train_loss,
+                                      self.train_losses,
+                                      self.train_accs),
+                            "valid": (self.traces_at_valid_loss,
+                                      self.valid_losses,
+                                      self.valid_accs)}
+        return training_details
+
     def train_one_epoch(self, epoch):
         """
         Train the model for 1 epoch of the training set.
@@ -249,6 +271,7 @@ class Trainer(object):
                 #  x, y = data_batch
                 attention_targets = None
                 posterior_targets = None
+                has_targets = None
 
                 # if i == 0:
                 #     print(y[0])
@@ -276,12 +299,28 @@ class Trainer(object):
                 locs = []
                 log_pi = []
                 loss_attention_targets = []
-                kl_divs = []
                 baselines = []
+
+                if self.entropy_reinforce:
+                    delta_entropies = []
+                    prev_entropy = torch.tensor(10.).log()*self.batch_size
+                    loss_intermediate_targets = 0
+                    entropy_baselines = []
+
                 for t in range(self.num_glimpses):
                     # forward pass through model
-                    l_t_targets = attention_targets[:, t] if self.use_attention_targets else None
-                    h_t, l_t, b_t, log_probas, loc_dist = self.model(x, h_t, last=True, replace_lt=None)    # last=True means it always makes predictions
+                    l_t_targets = attention_targets[:, t]
+
+                    if t == self.num_glimpses - 1:
+                        h_t, l_t, b_t, log_probas, loc_dist = \
+                            self.model(x, h_t, last=True,
+                                       replace_l_t=has_targets,
+                                       new_l_t=l_t_targets)
+                    else:
+                        h_t, l_t, b_t, loc_dist = \
+                            self.model(x, h_t, last=False,
+                                       replace_l_t=has_targets,
+                                       new_l_t=l_t_targets)
 
                     p_sampled = loc_dist.log_prob(l_t)
 
@@ -290,23 +329,30 @@ class Trainer(object):
                     baselines.append(b_t)
                     log_pi.append(p_sampled)
 
-                    if self.use_attention_targets:
-                        # probability that we propose targets
-                        p_targets = loc_dist.log_prob(l_t_targets)
-                        loss_attention_targets.append(p_targets)
+                    # probability that we propose targets
+                    p_current_targets = loc_dist.log_prob(l_t_targets)
+                    p_current_targets = torch.dot(p_current_targets,
+                                                  has_targets.type(
+                                                      torch.FloatTensor))
+                    loss_attention_targets.append(p_current_targets)
 
-                        #  t_predicted = log_probas
-                        #  t_targets = posterior_targets[:, t+1, :]
-                        # KL(p,q) = posterior_loss(q,p) - q is logs, p is not
-                        #  kl_div = torch.nn.KLDivLoss(size_average=False)(log_probas,
-                        #                                                  t_targets)/len(log_probas)
-                        #  kl_divs.append(kl_div)
+                    if self.entropy_reinforce:
+                        if t < self.num_glimpses-1:
+                            posterior_logits = self.extra_classifiers[t](h_t.detach())
+                        else:
+                            posterior_logits = log_probas
+                        posterior = torch.distributions.Categorical(
+                            logits=posterior_logits
+                        )
+                        new_entropy = posterior.entropy().sum()
+                        delta_entropies.append(new_entropy - prev_entropy)
+                        prev_entropy = new_entropy
+                        loss_intermediate_targets += -posterior.log_prob(y).sum()
 
                 # convert list to tensors and reshape
                 baselines = torch.stack(baselines).transpose(1, 0)
                 log_pi = torch.stack(log_pi).transpose(1, 0)
-                if self.use_attention_targets:
-                    loss_attention_targets = torch.sum(torch.stack(loss_attention_targets))
+                loss_attention_targets = torch.sum(torch.stack(loss_attention_targets))
                     #  predict_kl_div = torch.sum(torch.stack(kl_divs))
 
                 # calculate reward
@@ -324,12 +370,25 @@ class Trainer(object):
                 loss_reinforce = torch.sum(-log_pi*adjusted_reward, dim=1)
                 loss_reinforce = torch.mean(loss_reinforce, dim=0)
 
+                # entropy reinforce loss
+                if self.entropy_reinforce:
+                    # as supplementary loss for location network
+                    # - detached so not used on extra classifiers
+                    loss_entropy_reinforce = torch.sum(
+                        log_pi*(torch.stack(delta_entropies).detach()),
+                    )
+
                 # sum up into a hybrid loss
                 loss = loss_action + \
                        loss_baseline + \
                        loss_reinforce + \
-                       -self.attention_target_weight * (loss_attention_targets if self.use_attention_targets else 0) 
+                       -self.attention_target_weight * loss_attention_targets 
                        #  0.000 * (loss_predicted_posteriors if self.use_attention_targets else 0)
+
+                if self.entropy_reinforce:
+                    loss = loss + \
+                           loss_intermediate_targets+ \
+                           -loss_entropy_reinforce
 
                 # compute accuracy
                 correct = (predicted == y).float()
@@ -378,11 +437,9 @@ class Trainer(object):
                         )
                     )
 
-                # log to tensorboard
-                if self.use_tensorboard:
-                    trace = epoch*self.num_train + i*self.batch_size
-                    log_value('train_loss', loss.item(), trace)
-                    log_value('train_acc', acc.item(), trace)
+                self.traces_at_train_loss.append(epoch*self.train_per_valid + i*self.batch_size)
+                self.train_losses.append(loss.item())
+                self.train_accs.append(acc.item())
 
             return losses.avg, accs.avg
 
@@ -463,17 +520,15 @@ class Trainer(object):
 
             # compute accuracy
             correct = (predicted == y).float()
-            acc = 100 * (correct.sum() / len(y))
+            acc = 100 * (correct.sum() / (len(y)))
 
             # store
             losses.update(loss.data.item(), x.size()[0])
             accs.update(acc.data.item(), x.size()[0])
 
-        # log to tensorboard
-        if self.use_tensorboard:
-            iteration = (epoch+1)*self.num_train
-            log_value('valid_loss', losses.avg, iteration)
-            log_value('valid_acc', accs.avg, iteration)
+        self.traces_at_valid_loss.append((epoch+1)*self.train_per_valid)
+        self.valid_losses.append(losses.avg)
+        self.valid_accs.append(accs.avg)
 
         return losses.avg, accs.avg
 

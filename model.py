@@ -102,6 +102,7 @@ class RecurrentAttention(nn.Module):
         """
         unnormed_l_t, loc_dist = self.locator(h_t_prev)
 
+        import pdb; pdb.set_trace()
         # replace l_t_s
         if replace_l_t is not None:
             unnormed_l_t = torch.mul(unnormed_l_t, 1-replace_l_t)
