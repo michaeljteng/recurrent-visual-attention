@@ -230,9 +230,16 @@ class Trainer(object):
         with tqdm(total=self.num_train) as pbar:
             for i, (x,y) in enumerate(self.train_loader):
                     #  import pdb; pdb.set_trace()
-                    #  x, y, attention_targets, posterior_targets = data_batch
+                #      x, y, attention_targets, posterior_targets = data_batch
                 #  else:
-                    #  x, y = data_batch
+                #      x, y = data_batch
+                #
+                #  x, y are image and true label
+                #  at is a sequence of optimal entropy given attention targets
+                #  pt is a 1xnum_classes posterior categorical of the likelihood of class label given the design
+                #  at is num_glimpses of locations
+                #  pt is 10xnum_glimpses of posteriors
+
                 if self.use_gpu:
                     x, y = x.cuda(), y.cuda()
                 try:
@@ -268,12 +275,12 @@ class Trainer(object):
                 # extract the glimpses
                 locs = []
                 log_pi = []
-                log_p_targets = []
+                loss_attention_targets = []
                 kl_divs = []
                 baselines = []
                 for t in range(self.num_glimpses):
                     # forward pass through model
-                    #  l_t_targets = attention_targets[:, t] if self.use_attention_targets else None
+                    l_t_targets = attention_targets[:, t] if self.use_attention_targets else None
                     h_t, l_t, b_t, log_probas, loc_dist = self.model(x, h_t, last=True, replace_lt=None)    # last=True means it always makes predictions
 
                     p_sampled = loc_dist.log_prob(l_t)
@@ -286,26 +293,25 @@ class Trainer(object):
                     if self.use_attention_targets:
                         # probability that we propose targets
                         p_targets = loc_dist.log_prob(l_t_targets)
-                        log_p_targets.append(p_targets)
+                        loss_attention_targets.append(p_targets)
 
-                        t_predicted = log_probas
-                        t_targets = posterior_targets[:, t+1, :]
+                        #  t_predicted = log_probas
+                        #  t_targets = posterior_targets[:, t+1, :]
                         # KL(p,q) = posterior_loss(q,p) - q is logs, p is not
-                        kl_div = torch.nn.KLDivLoss(size_average=False)(log_probas,
-                                                                        t_targets)/len(log_probas)
-                        kl_divs.append(kl_div)
+                        #  kl_div = torch.nn.KLDivLoss(size_average=False)(log_probas,
+                        #                                                  t_targets)/len(log_probas)
+                        #  kl_divs.append(kl_div)
 
                 # convert list to tensors and reshape
                 baselines = torch.stack(baselines).transpose(1, 0)
                 log_pi = torch.stack(log_pi).transpose(1, 0)
                 if self.use_attention_targets:
-                    log_p_targets = torch.sum(torch.stack(log_p_targets))
-                    predict_kl_div = torch.sum(torch.stack(kl_divs))
+                    loss_attention_targets = torch.sum(torch.stack(loss_attention_targets))
+                    #  predict_kl_div = torch.sum(torch.stack(kl_divs))
 
                 # calculate reward
                 predicted = torch.max(log_probas, 1)[1]
                 R = (predicted.detach() == y).float()
-                #  import pdb; pdb.set_trace()
                 R = R.unsqueeze(1).repeat(1, self.num_glimpses)
 
                 # compute losses for differentiable modules
@@ -318,18 +324,12 @@ class Trainer(object):
                 loss_reinforce = torch.sum(-log_pi*adjusted_reward, dim=1)
                 loss_reinforce = torch.mean(loss_reinforce, dim=0)
 
-                if self.use_attention_targets:
-                    # probability of attention targets loss
-                    loss_attention_targets = log_p_targets
-                    # sum of KL divergences
-                    loss_predicted_posteriors = predict_kl_div
-
                 # sum up into a hybrid loss
                 loss = loss_action + \
                        loss_baseline + \
                        loss_reinforce + \
-                       -self.attention_target_weight * (loss_attention_targets if self.use_attention_targets else 0) + \
-                       0.000 * (loss_predicted_posteriors if self.use_attention_targets else 0)
+                       -self.attention_target_weight * (loss_attention_targets if self.use_attention_targets else 0) 
+                       #  0.000 * (loss_predicted_posteriors if self.use_attention_targets else 0)
 
                 # compute accuracy
                 correct = (predicted == y).float()
@@ -583,7 +583,6 @@ class Trainer(object):
         #  for key, value in model_preds[model].items():
         #      fly_kde = value[fly_idx, :, :2]
         #      t_5_x.append(fly_kde[timestep, 0])
-
         #      t_5_y.append(fly_kde[timestep, 1])
         img_min = 0
         img_max = self.image_size
