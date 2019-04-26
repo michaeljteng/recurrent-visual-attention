@@ -3,13 +3,13 @@ import torch
 from trainer import Trainer
 from config import get_config
 from utils import prepare_dirs, save_config
-from data_loader import get_test_loader, get_train_valid_loader
-from celeba_loader import get_train_celeba_loader
-from hq_loader import get_train_celebhq_loader
+from data_loader import get_gen_model_loader, \
+    get_partially_supervised_attention_loader
+from experiment_utils import track_metadata, save_details
 
 
-
-def main(config):
+@track_metadata
+def main(config, get_metadata=None):
 
     # ensure directories are setup
     prepare_dirs(config)
@@ -22,45 +22,28 @@ def main(config):
         kwargs = {'num_workers': 1, 'pin_memory': True}
 
     # instantiate data loaders
-    if config.dataset == 'mnist':
-        if config.is_train:
-            data_loader = get_train_valid_loader(
-                config.data_dir, config.batch_size,
-                config.random_seed, config.valid_size,
-                config.shuffle, config.show_sample, **kwargs
-            )
-        else:
-            data_loader = get_test_loader(
-                config.data_dir, config.batch_size, **kwargs
-            )
-    elif config.dataset == 'celeba':
-        if config.is_train:
-            trainer, validator, _ = get_train_celeba_loader(
-                config.celeba_image_dir, config.attr_path, config.selected_attrs,
-                config.celeba_crop_size, config.image_size, config.batch_size,
-                config.mode, config.num_workers, 0.1, config.show_sample
-            )
-            data_loader = (trainer, validator)
-        else:
-            _, _, data_loader = get_train_celeba_loader(
-                config.celeba_image_dir, config.attr_path, config.selected_attrs,
-                config.celeba_crop_size, config.image_size, config.batch_size,
-                config.mode, config.num_workers, 0.1, config.show_sample
-            )
-    elif config.dataset == 'celebhq':
-        if config.is_train:
-            trainer, validator, _ = get_train_celebhq_loader(
-                config.celebhq_image_dir, config.hq_attr_path, config.selected_attrs,
-                config.celeba_crop_size, config.image_size, config.batch_size,
-                config.mode, config.num_workers, 0.1, config.show_sample
-            )
-            data_loader = (trainer, validator)
-        else:
-            _, _, data_loader = get_train_celebhq_loader(
-                config.celebhq_image_dir, config.hq_attr_path, config.selected_attrs,
-                config.celeba_crop_size, config.image_size, config.batch_size,
-                config.mode, config.num_workers, 0.1, config.show_sample
-            )
+    if config.is_train:
+        train_loader = get_partially_supervised_attention_loader(
+            config.batch_size,
+            config.train_per_valid,
+            config.supervised_attention_prob,
+            **kwargs
+        )
+        valid_loader = get_gen_model_loader(
+            config.batch_size,
+            epoch_size=config.valid_size,
+            fix_data=True,
+            **kwargs
+        )
+        data_loader = (train_loader, valid_loader)
+    else:
+        data_loader = get_gen_model_loader(
+            config.batch_size,
+            epoch_size=10000,
+            fix_data=True,
+            fix_offset=1e6,
+            **kwargs
+        )
 
     # instantiate trainer
     trainer = Trainer(config, data_loader)
@@ -68,12 +51,12 @@ def main(config):
     # either train
     if config.is_train:
         save_config(config)
-        trainer.train()
+        losses = trainer.train()
+        save_details(config, get_metadata(), losses)
 
     # or load a pretrained model and test
     else:
         trainer.test()
-        #  trainer.kde()
 
 
 if __name__ == '__main__':

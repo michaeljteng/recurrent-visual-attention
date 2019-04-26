@@ -3,10 +3,6 @@ import torch.nn.functional as F
 
 from torch.autograd import Variable
 import torch.optim as optim
-from torch.optim.lr_scheduler import ReduceLROnPlateau
-import matplotlib.pyplot as plt
-import numpy as np
-from scipy import stats
 
 import os
 import time
@@ -14,10 +10,10 @@ import shutil
 import pickle
 
 from tqdm import tqdm
-from utils import AverageMeter, arctanh
+from utils import AverageMeter
 from model import RecurrentAttention
-from tensorboard_logger import configure, log_value
-from utils import denormalize, bounding_box
+from modules import action_network
+from tensorboard_logger import configure
 
 
 class Trainer(object):
@@ -39,6 +35,14 @@ class Trainer(object):
         """
         self.config = config
 
+        # loss trackers
+        self.traces_at_train_loss = []
+        self.traces_at_valid_loss = []
+        self.train_losses = []
+        self.valid_losses = []
+        self.train_accs = []
+        self.valid_accs = []
+
         # glimpse network params
         self.patch_size = config.patch_size
         self.glimpse_scale = config.glimpse_scale
@@ -59,22 +63,22 @@ class Trainer(object):
         if config.is_train:
             self.train_loader = data_loader[0]
             self.valid_loader = data_loader[1]
-            self.num_train = len(self.train_loader.sampler.indices)
+            self.train_per_valid = config.train_per_valid
             self.num_valid = len(self.valid_loader.sampler.indices)
         else:
             self.test_loader = data_loader
-            self.num_test = len(self.test_loader.sampler)
-        self.num_classes = config.num_classes
-        self.num_channels = 1 
-        #  self.num_channels = 1 if config.dataset == 'mnist' else 3
+            self.num_test = len(self.test_loader.dataset)
+        self.num_classes = 10
+        self.num_channels = 1
 
         # training params
         self.epochs = config.epochs
-        self.use_attention_targets = config.use_attention_targets
+        self.supervised_attention_prob = config.supervised_attention_prob
         self.attention_target_weight = config.attention_target_weight
         self.start_epoch = 0
         self.momentum = config.momentum
         self.lr = config.init_lr
+        self.entropy_reinforce = config.entropy_reinforce_loss
 
         # misc params
         self.use_gpu = config.use_gpu
@@ -89,16 +93,11 @@ class Trainer(object):
         self.resume = config.resume
         self.print_freq = config.print_freq
         self.plot_freq = config.plot_freq
-        self.image_size = config.image_size
-        self.model_name = '{}-{}_gnum:{}_gsize:{}x{}_imgsize:{}x{}'.format(
-            config.dataset, config.selected_attrs[0], 
-            config.num_glimpses, config.patch_size, config.patch_size, 
-            config.image_size, config.image_size
+        self.model_name = 'ram_{}_{}x{}_{}{}'.format(
+            config.num_glimpses, config.patch_size,
+            config.patch_size, config.glimpse_scale,
+            ("" if config.name == "" else "_"+config.name)
         )
-
-        self.model_checkpoints = self.ckpt_dir + '/' +  self.model_name + '/'
-        if not os.path.exists(self.model_checkpoints):
-            os.makedirs(self.model_checkpoints)
 
         self.plot_dir = './plots/' + self.model_name + '/'
         if not os.path.exists(self.plot_dir):
@@ -123,6 +122,12 @@ class Trainer(object):
 
         print('[*] Number of model parameters: {:,}'.format(
             sum([p.data.nelement() for p in self.model.parameters()])))
+
+        if self.entropy_reinforce:
+            self.extra_classifiers = torch.nn.ModuleList(
+                [action_network(self.hidden_size, 10)
+                 for _ in range(self.num_glimpses-1)]
+            )
 
         # # initialize optimizer and scheduler
         # self.optimizer = optim.SGD(
@@ -150,10 +155,6 @@ class Trainer(object):
         h_t = torch.zeros(self.batch_size, self.hidden_size)
         h_t = Variable(h_t).type(dtype)
 
-        #  l_t = torch.Tensor(self.batch_size, 2).uniform_(-1, 1)
-        #  l_t = Variable(l_t).type(dtype)
-        #
-        #  return h_t, l_t
         return h_t
 
     def train(self):
@@ -166,11 +167,11 @@ class Trainer(object):
         """
         # load the most recent checkpoint
         if self.resume:
-            # TODO !!!!!!!
             self.load_checkpoint(best=False)
 
-        print("\n[*] Train on {} samples, validate on {} samples".format(
-            self.num_train, self.num_valid)
+        print("\n[*] Train on {} samples between validations, \
+              validate on {} samples".format(
+            self.train_per_valid, self.num_valid)
         )
 
         for epoch in range(self.start_epoch, self.epochs):
@@ -201,9 +202,9 @@ class Trainer(object):
             # check for improvement
             if not is_best:
                 self.counter += 1
-            #  if self.counter > self.train_patience:
-            #      print("[!] No improvement in a while, stopping training.")
-            #      return
+            if self.counter > self.train_patience:
+                print("[!] No improvement in a while, stopping training.")
+                break
             self.best_valid_acc = max(valid_acc, self.best_valid_acc)
             self.save_checkpoint(
                 {'epoch': epoch + 1,
@@ -212,6 +213,14 @@ class Trainer(object):
                  'best_valid_acc': self.best_valid_acc,
                  }, is_best
             )
+
+        training_details = {"train": (self.traces_at_train_loss,
+                                      self.train_losses,
+                                      self.train_accs),
+                            "valid": (self.traces_at_valid_loss,
+                                      self.valid_losses,
+                                      self.valid_accs)}
+        return training_details
 
     def train_one_epoch(self, epoch):
         """
@@ -227,34 +236,12 @@ class Trainer(object):
         accs = AverageMeter()
 
         tic = time.time()
-        with tqdm(total=self.num_train) as pbar:
-            for i, (x,y) in enumerate(self.train_loader):
-                    #  import pdb; pdb.set_trace()
-                #      x, y, attention_targets, posterior_targets = data_batch
-                #  else:
-                #      x, y = data_batch
-                #
-                #  x, y are image and true label
-                #  at is a sequence of optimal entropy given attention targets
-                #  pt is a 1xnum_classes posterior categorical of the likelihood of class label given the design
-                #  at is num_glimpses of locations
-                #  pt is 10xnum_glimpses of posteriors
-
-                if self.use_gpu:
-                    x, y = x.cuda(), y.cuda()
-                try:
-                    x, y = Variable(x), Variable(y.squeeze(1))
-                except:
-                    x, y = Variable(x), Variable(y)
-                #  x, y = data_batch
-                attention_targets = None
-                posterior_targets = None
-
-                # if i == 0:
-                #     print(y[0])
-                #     import matplotlib.pyplot as plt
-                #     plt.imshow(x[0, 0].numpy())
-                #     plt.show()
+        with tqdm(total=self.train_per_valid) as pbar:
+            for i, data_batch in enumerate(self.train_loader):
+                x, y, \
+                    attention_targets, \
+                    posterior_targets, \
+                    has_targets = data_batch
 
                 if self.use_gpu:
                     x, y = x.cuda(), y.cuda()
@@ -275,13 +262,29 @@ class Trainer(object):
                 # extract the glimpses
                 locs = []
                 log_pi = []
-                loss_attention_targets = []
-                kl_divs = []
+                log_p_targets = []
                 baselines = []
+
+                if self.entropy_reinforce:
+                    delta_entropies = []
+                    prev_entropy = torch.tensor(10.).log()*self.batch_size
+                    loss_intermediate_targets = 0
+                    entropy_baselines = []
+
                 for t in range(self.num_glimpses):
                     # forward pass through model
-                    l_t_targets = attention_targets[:, t] if self.use_attention_targets else None
-                    h_t, l_t, b_t, log_probas, loc_dist = self.model(x, h_t, last=True, replace_lt=None)    # last=True means it always makes predictions
+                    l_t_targets = attention_targets[:, t]
+
+                    if t == self.num_glimpses - 1:
+                        h_t, l_t, b_t, log_probas, loc_dist = \
+                            self.model(x, h_t, last=True,
+                                       replace_l_t=has_targets,
+                                       new_l_t=l_t_targets)
+                    else:
+                        h_t, l_t, b_t, loc_dist = \
+                            self.model(x, h_t, last=False,
+                                       replace_l_t=has_targets,
+                                       new_l_t=l_t_targets)
 
                     p_sampled = loc_dist.log_prob(l_t)
 
@@ -290,24 +293,37 @@ class Trainer(object):
                     baselines.append(b_t)
                     log_pi.append(p_sampled)
 
-                    if self.use_attention_targets:
-                        # probability that we propose targets
-                        p_targets = loc_dist.log_prob(l_t_targets)
-                        loss_attention_targets.append(p_targets)
+                    # probability that we propose targets
+                    p_current_targets = loc_dist.log_prob(l_t_targets)
+                    p_current_targets = torch.dot(p_current_targets,
+                                                  has_targets.type(
+                                                      torch.FloatTensor))
+                    log_p_targets.append(p_current_targets)
 
-                        #  t_predicted = log_probas
-                        #  t_targets = posterior_targets[:, t+1, :]
-                        # KL(p,q) = posterior_loss(q,p) - q is logs, p is not
-                        #  kl_div = torch.nn.KLDivLoss(size_average=False)(log_probas,
-                        #                                                  t_targets)/len(log_probas)
-                        #  kl_divs.append(kl_div)
+                    if self.entropy_reinforce:
+                        if t < self.num_glimpses-1:
+                            posterior_logits = self.extra_classifiers[t](h_t.detach())
+                        else:
+                            posterior_logits = log_probas
+                        posterior = torch.distributions.Categorical(
+                            logits=posterior_logits
+                        )
+                        new_entropy = posterior.entropy().sum()
+                        delta_entropies.append(new_entropy - prev_entropy)
+                        prev_entropy = new_entropy
+                        loss_intermediate_targets += -posterior.log_prob(y).sum()
+
+                    # t_predicted = log_probas
+                    # t_targets = posterior_targets[:, t+1, :]
+                    # # KL(p,q) = posterior_loss(q,p) - q is logs, p is not
+                    # kl_div = torch.nn.KLDivLoss(size_average=False)(log_probas,
+                    #                                                 t_targets)/len(log_probas)
+                    # kl_divs.append(kl_div)
 
                 # convert list to tensors and reshape
                 baselines = torch.stack(baselines).transpose(1, 0)
                 log_pi = torch.stack(log_pi).transpose(1, 0)
-                if self.use_attention_targets:
-                    loss_attention_targets = torch.sum(torch.stack(loss_attention_targets))
-                    #  predict_kl_div = torch.sum(torch.stack(kl_divs))
+                log_p_targets = torch.sum(torch.stack(log_p_targets))
 
                 # calculate reward
                 predicted = torch.max(log_probas, 1)[1]
@@ -324,12 +340,29 @@ class Trainer(object):
                 loss_reinforce = torch.sum(-log_pi*adjusted_reward, dim=1)
                 loss_reinforce = torch.mean(loss_reinforce, dim=0)
 
+                # entropy reinforce loss
+                if self.entropy_reinforce:
+                    # as supplementary loss for location network
+                    # - detached so not used on extra classifiers
+                    loss_entropy_reinforce = torch.sum(
+                        log_pi*(torch.stack(delta_entropies).detach()),
+                    )
+
+                # probability of attention targets loss
+                loss_attention_targets = log_p_targets
+                # sum of KL divergences
+                # loss_predicted_posteriors = predict_kl_div
+
                 # sum up into a hybrid loss
                 loss = loss_action + \
                        loss_baseline + \
                        loss_reinforce + \
-                       -self.attention_target_weight * (loss_attention_targets if self.use_attention_targets else 0) 
-                       #  0.000 * (loss_predicted_posteriors if self.use_attention_targets else 0)
+                       -self.attention_target_weight * loss_attention_targets
+
+                if self.entropy_reinforce:
+                    loss = loss + \
+                           loss_intermediate_targets+ \
+                           -loss_entropy_reinforce
 
                 # compute accuracy
                 correct = (predicted == y).float()
@@ -378,11 +411,9 @@ class Trainer(object):
                         )
                     )
 
-                # log to tensorboard
-                if self.use_tensorboard:
-                    trace = epoch*self.num_train + i*self.batch_size
-                    log_value('train_loss', loss.item(), trace)
-                    log_value('train_acc', acc.item(), trace)
+                self.traces_at_train_loss.append(epoch*self.train_per_valid + i*self.batch_size)
+                self.train_losses.append(loss.item())
+                self.train_accs.append(acc.item())
 
             return losses.avg, accs.avg
 
@@ -396,10 +427,7 @@ class Trainer(object):
         for i, (x, y) in enumerate(self.valid_loader):
             if self.use_gpu:
                 x, y = x.cuda(), y.cuda()
-            try:
-                x, y = Variable(x), Variable(y.squeeze(1))
-            except:
-                x, y = Variable(x), Variable(y)
+            x, y = Variable(x), Variable(y)
 
             # duplicate 10 times
             x = x.repeat(self.M, 1, 1, 1)
@@ -431,13 +459,13 @@ class Trainer(object):
             baselines = torch.stack(baselines).transpose(1, 0)
             log_pi = torch.stack(log_pi).transpose(1, 0)
 
-            # stack data points and mc samples together
+            # stack data points and MC samples together
             log_probas = log_probas.view(
-              -1, log_probas.shape[-1]
+                -1, log_probas.shape[-1]
             )
 
             baselines = baselines.contiguous().view(
-              -1, baselines.shape[-1]
+                -1, baselines.shape[-1]
             )
 
             log_pi = log_pi.contiguous().view(
@@ -463,17 +491,15 @@ class Trainer(object):
 
             # compute accuracy
             correct = (predicted == y).float()
-            acc = 100 * (correct.sum() / len(y))
+            acc = 100 * (correct.sum() / (len(y)))
 
             # store
             losses.update(loss.data.item(), x.size()[0])
             accs.update(acc.data.item(), x.size()[0])
 
-        # log to tensorboard
-        if self.use_tensorboard:
-            iteration = (epoch+1)*self.num_train
-            log_value('valid_loss', losses.avg, iteration)
-            log_value('valid_acc', accs.avg, iteration)
+        self.traces_at_valid_loss.append((epoch+1)*self.train_per_valid)
+        self.valid_losses.append(losses.avg)
+        self.valid_accs.append(accs.avg)
 
         return losses.avg, accs.avg
 
@@ -483,153 +509,47 @@ class Trainer(object):
         This function should only be called at the very
         end once the model has finished training.
         """
+        correct = 0
+
         # load the best checkpoint
+        self.load_checkpoint(best=self.best)
 
-        epoch = 1
-        f1s = []
-        accs = []
-
-        print("Testing trained model with ", len(self.test_loader), " examples")
-        while(True):
-            try:
-                self.load_checkpoint(epoch=epoch)
-            except:
-                break
-
-            correct = 0
-            f1_correct  = 0
-            f1_reported  = 0
-            f1_relevant  = 0
-            for i, (x, y) in enumerate(self.test_loader):
-                with torch.no_grad():
-                    if self.use_gpu:
-                        x, y = x.cuda(), y.cuda()
-                    try:
-                        x, y = Variable(x), Variable(y.squeeze(1))
-                    except:
-                        x, y = Variable(x), Variable(y)
-
-                    # duplicate 10 times
-                    x = x.repeat(self.M, 1, 1, 1)
-
-                    # initialize location vector and hidden state
-                    self.batch_size = x.shape[0]
-                    h_t = self.reset()
-
-                    # extract the glimpses
-                    for t in range(self.num_glimpses - 1):
-                        # forward pass through model
-                        h_t, l_t, b_t, p, ld = self.model(x, h_t, last=True, replace_lt=None)
-
-                    # last iteration
-                    h_t, l_t, b_t, log_probas, p = self.model(
-                        x, h_t, last=True, replace_lt=None
-                    )
-
-                    log_probas = log_probas.view(
-                        self.M, -1, log_probas.shape[-1]
-                    )
-                    log_probas = torch.mean(log_probas, dim=0)
-
-                    pred = log_probas.data.max(1, keepdim=True)[1]
-                    correct += pred.eq(y.data.view_as(pred)).cpu().sum()
-
-                    preds = pred.flatten()
-                    total_reported = pred.sum()
-                    total_relevant = y.sum()
-
-                    preds[preds == 0] = 2
-                    total_correct = preds.eq(y.cpu()).sum()
-
-                    f1_correct += total_correct
-                    f1_reported += total_reported
-                    f1_relevant += total_relevant
-
-            perc = (100. * correct) / (self.num_test)
-            error = 100 - perc
-            try:
-                precision = float(f1_correct) / float(f1_reported)
-            except:
-                precision = 0.0
-
-            recall = float(f1_correct) / float(f1_relevant)
-            
-            try:
-                f1_score = 2 * (precision * recall / (precision + recall))
-            except:
-                f1_score = 0.0
-            accuracy = float(correct) / float(self.num_test)
-
-            print(
-                    '[*] Test Acc: {}/{} ({:.2f}% - {:.2f}%) : F1 Score - {} \n'.format(
-
-                    correct, self.num_test, perc, error, f1_score)
-            )
-            epoch += 1
-            f1s.append(f1_score)
-            accs.append(accuracy)
-
-        fig, ax = plt.subplots()
-        ax.plot(np.arange(len(f1s)), f1s)
-        ax.plot(np.arange(len(accs)), accs)
-        plt.show()
-
-    def kde(self):
-        epoch = 5
-        print("plotting kde of trained model with ", len(self.test_loader), " examples")
-        self.load_checkpoint(epoch=epoch)
-        fig, ax = plt.subplots()
-
-        #  for key, value in model_preds[model].items():
-        #      fly_kde = value[fly_idx, :, :2]
-        #      t_5_x.append(fly_kde[timestep, 0])
-        #      t_5_y.append(fly_kde[timestep, 1])
-        img_min = 0
-        img_max = self.image_size
-
-        #  m1 = np.array(t_5_x)
-        #  m2 = np.array(t_5_y)
-        X, Y = np.mgrid[img_min:img_max:100j, img_min:img_max:100j]
-        positions = np.vstack([X.ravel(), Y.ravel()])
-
-        all_locations = torch.Tensor([])
         for i, (x, y) in enumerate(self.test_loader):
-            with torch.no_grad():
-                if self.use_gpu:
-                    x, y = x.cuda(), y.cuda()
-                try:
-                    x, y = Variable(x), Variable(y.squeeze(1))
-                except:
-                    x, y = Variable(x), Variable(y)
+            if self.use_gpu:
+                x, y = x.cuda(), y.cuda()
+            x, y = Variable(x, volatile=True), Variable(y)
 
-                # duplicate 10 times
-                #  x = x.repeat(self.M, 1, 1, 1)
+            # duplicate 10 times
+            x = x.repeat(self.M, 1, 1, 1)
+            y = y.repeat(self.M)
 
-                # initialize location vector and hidden state
-                self.batch_size = x.shape[0]
-                h_t = self.reset()
+            # initialize location vector and hidden state
+            self.batch_size = x.shape[0]
+            h_t = self.reset()
 
-                # extract the glimpses
-                for t in range(self.num_glimpses - 1):
-                    # forward pass through model
-                    h_t, l_t, b_t, _, _ = self.model(x, h_t, last=True, replace_lt=None)    # last=True means it always makes predictions
+            # extract the glimpses
+            for t in range(self.num_glimpses - 1):
+                # forward pass through model
+                h_t, l_t, b_t, p = self.model(x, h_t)
 
+            # last iteration
+            h_t, l_t, b_t, log_probas, p = self.model(
+                x, h_t, last=True
+            )
 
-                # last iteration
-                h_t, l_t, b_t, log_probas, p = self.model(
-                    x, h_t, last=True, replace_lt=None
-                )
+            log_probas = log_probas.view(
+                -1, log_probas.shape[-1]
+            )
 
-                all_locations = torch.cat((all_locations, l_t))
+            pred = log_probas.data.max(1, keepdim=True)[1]
+            correct += pred.eq(y.data.view_as(pred)).cpu().sum()
 
-        coords = denormalize(self.image_size, all_locations)
-        coords = coords + (self.patch_size / 2)
-        values = torch.stack((coords[:, 0], (self.image_size - coords[:, 1])))
-        kernel = stats.gaussian_kde(values)
-        Z = np.reshape(kernel(positions).T, X.shape)
-        im = ax.imshow(np.rot90(Z), cmap=plt.cm.gist_earth_r,
-                  extent=[0, 256, 0, 256])
-        plt.show()
+        perc = (100. * correct) / (self.num_test*self.M)
+        error = 100 - perc
+        print(
+            '[*] Test Acc: {}/{} ({:.2f}% - {:.2f}%)'.format(
+                correct, self.num_test*self.M, perc, error)
+        )
 
     def save_checkpoint(self, state, is_best):
         """
@@ -642,17 +562,17 @@ class Trainer(object):
         """
         # print("[*] Saving model to {}".format(self.ckpt_dir))
 
-        filename = self.model_name + '_' + str(state['epoch']) + '_ckpt.pth.tar'
-        ckpt_path = os.path.join(self.model_checkpoints, filename)
+        filename = self.model_name + '_ckpt.pth.tar'
+        ckpt_path = os.path.join(self.ckpt_dir, filename)
         torch.save(state, ckpt_path)
 
         if is_best:
             filename = self.model_name + '_model_best.pth.tar'
             shutil.copyfile(
-                ckpt_path, os.path.join(self.model_checkpoints, filename)
+                ckpt_path, os.path.join(self.ckpt_dir, filename)
             )
 
-    def load_checkpoint(self, epoch=1):
+    def load_checkpoint(self, best=False):
         """
         Load the best copy of a model. This is useful for 2 cases:
 
@@ -665,12 +585,12 @@ class Trainer(object):
           to evaluate your model on the test data. Else, set to False in
           which case the most recent version of the checkpoint is used.
         """
-        print("[*] Loading model from {}".format(self.model_checkpoints))
+        print("[*] Loading model from {}".format(self.ckpt_dir))
 
-        filename = self.model_name + '_' + str(epoch) + '_ckpt.pth.tar'
-        #  if best:
-        #      filename = self.model_name + '_model_best.pth.tar'
-        ckpt_path = os.path.join(self.model_checkpoints, filename)
+        filename = self.model_name + '_ckpt.pth.tar'
+        if best:
+            filename = self.model_name + '_model_best.pth.tar'
+        ckpt_path = os.path.join(self.ckpt_dir, filename)
         ckpt = torch.load(ckpt_path)
 
         # load variables from checkpoint
@@ -679,14 +599,16 @@ class Trainer(object):
         self.model.load_state_dict(ckpt['model_state'])
         self.optimizer.load_state_dict(ckpt['optim_state'])
 
-        #  if best:
-        #      print(
-        #          "[*] Loaded {} checkpoint @ epoch {} "
-        #          "with best valid acc of {:.3f}".format(
-        #              filename, ckpt['epoch'], ckpt['best_valid_acc'])
-        #      )
-        #  else: 
-        print(
+        if best:
+            print(
+                "[*] Loaded {} checkpoint @ epoch {} "
+                "with best valid acc of {:.3f}".format(
+                    filename, ckpt['epoch'], ckpt['best_valid_acc'])
+            )
+        else:
+            print(
                 "[*] Loaded {} checkpoint @ epoch {}".format(
                     filename, ckpt['epoch'])
             )
+
+#  LocalWords:  Args

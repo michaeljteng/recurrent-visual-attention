@@ -10,6 +10,7 @@ from modules import glimpse_network, core_network
 from modules import action_network, discrete_location_network, location_network
 from attention_target_dataset import normalize_attention_loc
 
+
 class RecurrentAttention(nn.Module):
     """
     A Recurrent Model of Visual Attention (RAM) [1].
@@ -63,7 +64,7 @@ class RecurrentAttention(nn.Module):
         self.classifier = action_network(hidden_size, num_classes)
         self.baseliner = baseline_network(hidden_size, 1)
 
-    def forward(self, x, h_t_prev, last=False, replace_lt=None):
+    def forward(self, x, h_t_prev, last=False, replace_l_t=None, new_l_t=None):
         """
         Run the recurrent attention model for 1 timestep
         on the minibatch of images `x`.
@@ -99,15 +100,17 @@ class RecurrentAttention(nn.Module):
           output log probability vector over the classes.
         - log_pi: a vector of length (B,).
         """
-        unnormed_l_t, loc_dist = self.locator(h_t_prev, fix_l_t=replace_lt)
+        unnormed_l_t, loc_dist = self.locator(h_t_prev)
+
+        # replace l_t_s
+        if replace_l_t is not None:
+            unnormed_l_t = torch.mul(unnormed_l_t, 1-replace_l_t)
+            unnormed_l_t = unnormed_l_t + torch.mul(new_l_t, replace_l_t)
+
         l_t = normalize_attention_loc(unnormed_l_t)
         g_t = self.sensor(x, l_t)
         h_t = self.rnn(g_t, h_t_prev)
         b_t = self.baseliner(h_t).squeeze()
-
-        # we assume both dimensions are independent
-        # 1. pdf of the joint is the product of the pdfs
-        # 2. log of the product is the sum of the logs
 
         if last:
             log_probas = self.classifier(h_t)

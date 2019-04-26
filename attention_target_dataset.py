@@ -6,7 +6,6 @@ from PIL import Image
 
 import torch
 from torch.utils.data.dataset import Dataset
-#from torchvision.datasets.utils import makedir_exist_ok
 
 
 def normalize_attention_loc(integers, w=28, h=28, T=1):
@@ -36,11 +35,12 @@ def normalize_attention_loc(integers, w=28, h=28, T=1):
     return torch.cat([pixel_x.unsqueeze(-1), pixel_y.unsqueeze(-1)], dim=-1)
 
 
-
 class AttentionTargetDataset(Dataset):
     data_file_name = 'training.pt'
 
-    def __init__(self, root, transform=None, label_transform=None, attention_target_transform=None, loadfrom=None, max_dataset_size=100000000):
+    def __init__(self, root, transform=None, label_transform=None,
+                 attention_target_transform=None, loadfrom=None,
+                 max_dataset_size=100000000):
         self.processed_folder = os.path.join(root, "processed")
         self.training_path = os.path.join(self.processed_folder, self.data_file_name)
         self.transform = transform
@@ -59,7 +59,7 @@ class AttentionTargetDataset(Dataset):
     def __getitem__(self, index):
         image = self.images[index]
         label = self.labels[index]
-        attention_target = self.attention_targets[index]
+        attention_target = self.attention_targets[index].type(torch.LongTensor)
         posterior_target = self.posterior_targets[index]
 
         # image = Image.fromarray(image.numpy(), mode='L')
@@ -73,7 +73,6 @@ class AttentionTargetDataset(Dataset):
 
         if self.attention_target_transform is not None:
             attention_target = self.attention_target_transform(attention_target)
-
         return image, label, attention_target, posterior_target
 
     def _process(self, raw_path, max_dataset_size):
@@ -134,35 +133,77 @@ class AttentionTargetDataset(Dataset):
     def __len__(self):
         return len(self.images)
 
-def MixtureDataset(Dataset):
-    def __init__(self, targets_dataset, other_dataset, targets_prob):
+    def _posterior_accuracy(self, n_glimpses):
+        n_correct = 0
+        for i in range(len(self)):
+            _, label, _, posteriors = self.__getitem__(i)
+            relevant_posterior = posteriors[n_glimpses]
+            mode = relevant_posterior.argmax()
+            if mode == label:
+                n_correct += 1
+        return n_correct/len(self)
+
+
+class MixtureDataset(Dataset):
+    def __init__(self,
+                 targets_dataset,
+                 other_dataset,
+                 targets_prob):
         self.targets_dataset = targets_dataset
         self.other_dataset = other_dataset
-        self.mixture_prob = mixture_prob
+        self.targets_prob = targets_prob
 
         self.num_targets_due = 0
 
+        _, _, example_att_targets, example_pos_targets \
+            = targets_dataset.__getitem__(0)
+        self.att_target_shape = example_att_targets.shape
+        self.pos_target_shape = example_pos_targets.shape
+
+    def _augment_data(self, datum, has_targets):
+        """
+        puts data into a standard form, whether or not it
+        comes with a target
+        """
+        if has_targets:
+            x, y, attention_target, posterior_target = datum
+        else:
+            x, y = datum
+            attention_target = torch.zeros(self.att_target_shape).type(torch.LongTensor)
+            posterior_target = torch.zeros(self.pos_target_shape)
+        return x, y,\
+            attention_target, posterior_target,\
+            torch.tensor(1 if has_targets else 0)
+
     def _use_target(self):
-        self.num_targets_due += targets_prob
-        if self.num_targets_due >= 1:
-            self.num_targets_due -= 1
-            return True
-        return False
+        return torch.rand((1, 1)).item() < self.targets_prob
 
     def __getitem__(self, index):
         if self._use_target():
-            return self.targets_dataset.get_item(index)
-        return self.other_dataset.get_item(index)
+            target_index = int(torch.randint(4210, (1, 1)).item())
+            return self._augment_data(
+                self.targets_dataset.__getitem__(target_index),
+                True
+            )
+        return self._augment_data(
+            self.other_dataset.__getitem__(index),
+            False
+        )
 
 
 if __name__ == '__main__':
     import argparse
 
     arg_lists = []
-    parser = argparse.ArgumentParser(description='Attention target dataset')
+    parser = argparse.ArgumentParser(
+        description='Process files into attention target dataset.'
+    )
     parser.add_argument('raw_data_folder', type=str,
                         help='path of raw data folder')
-    parser.add_argument('-max_size', type=int, help='maximum number of data points to take')
+    parser.add_argument('-max_size', type=int,
+                        help='maximum number of data points to take')
     args = parser.parse_args()
 
-    AttentionTargetDataset("attention_target_data", loadfrom=args.raw_data_folder, max_dataset_size=args.max_size)
+    AttentionTargetDataset("attention_target_data",
+                           loadfrom=args.raw_data_folder,
+                           max_dataset_size=args.max_size)
