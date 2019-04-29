@@ -48,8 +48,10 @@ class ApproxAttention(object):
                       'Wearing Hat', 'Wearing Lipstick', 'Wearing Necklace', 'Wearing Necktie',
                       'Young']
         assert attribute in attr_list
+        assert i_size % g_size == 0
         attr_i = attr_list.index(attribute)
-        MIN_X, MAX_X = 0, 224-16
+        MIN_X, MAX_X = 0, i_size - g_size
+        self.num_glimpses = int(i_size / g_size)**2
         coords = [int(x) for x in np.linspace(MIN_X, MAX_X, 50)]
         APEs = pickle.load(open("data_ALL_CLASSES_16x16_RESUMED_AGAIN_weights_64_BEST_100_APEs.p", 'rb'))
         self.Z = 1 - np.array([[APEs[(y, x)][attr_i] \
@@ -58,11 +60,20 @@ class ApproxAttention(object):
                             for x in coords] for y in coords])
         maxZ = np.max(self.Z)
         entropy_cutoff = cutoff * maxZ
-        self.sampler = np.where(self.Z < entropy_cutoff, self.Z, 0)
-        import pdb; pdb.set_trace()
+        self.sample_probs = torch.softmax(
+                                torch.tensor(
+                                    np.where(self.Z > entropy_cutoff, 
+                                            self.Z, 
+                                            np.zeros((50,50)) - np.inf
+                                        ).flatten()
+                                ), 0)
+        self.sampler = None
 
-    def sample(self):
-        print('wtf')
-        import pdb; pdb.set_trace()
+    def sample(self, batch_size, num_glimpses):
+        #  print('wtf')
+        if self.sampler == None:
+            self.sampler = torch.distributions.Categorical(self.sample_probs.expand(batch_size, num_glimpses, self.sample_probs.shape[0]))
+        unnormed = self.sampler.sample()
+        return torch.round((unnormed.float() / 2500)*self.num_glimpses).long()
         
 

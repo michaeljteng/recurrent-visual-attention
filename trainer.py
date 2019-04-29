@@ -273,10 +273,10 @@ class Trainer(object):
                     has_targets = torch.zeros(x.shape[0]).long()
                 else:
                     if self.attention_targets == 'approx':
-                        self.supervised_loader.sample()
-                        import pdb; pdb.set_trace()
-                        attention_targets = torch.LongTensor(np.random.randint(0, 196, size=(x.shape[0], self.num_glimpses)))
-                        has_targets = torch.ones(x.shape[0]).long()
+                        attention_targets = self.supervised_loader.sample(x.shape[0], self.num_glimpses)
+                        has_targets = torch.tensor([1 if i < round(self.supervised_attention_prob*x.shape[0]) 
+                                                    else 0 
+                                                    for i in range(64)]).long()
                     elif self.attention_targets == 'exact':
                         raise ValueError('not done yet')
                     else:
