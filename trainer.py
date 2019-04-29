@@ -20,6 +20,7 @@ from modules import action_network
 from tensorboard_logger import configure, log_value
 from utils import denormalize, bounding_box
 
+from experiment_utils import ApproxAttention
 
 class Trainer(object):
     """
@@ -83,6 +84,8 @@ class Trainer(object):
         self.attention_targets = config.attention_targets
         self.supervised_attention_prob = config.supervised_attention_prob
         self.attention_target_weight = config.attention_target_weight if config.supervised_attention_prob > 0.0 else 0
+        if self.attention_targets == 'approx' and self.attention_target_weight != 0:
+            self.supervised_loader = ApproxAttention(config.selected_attrs[0], config.image_size, config.patch_size)
         self.start_epoch = 0
         self.momentum = config.momentum
         self.lr = config.init_lr
@@ -270,6 +273,8 @@ class Trainer(object):
                     has_targets = torch.zeros(x.shape[0]).long()
                 else:
                     if self.attention_targets == 'approx':
+                        self.supervised_loader.sample()
+                        import pdb; pdb.set_trace()
                         attention_targets = torch.LongTensor(np.random.randint(0, 196, size=(x.shape[0], self.num_glimpses)))
                         has_targets = torch.ones(x.shape[0]).long()
                     elif self.attention_targets == 'exact':

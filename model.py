@@ -61,7 +61,9 @@ class RecurrentAttention(nn.Module):
 
         self.sensor = glimpse_network(h_g, h_l, g_size, k, s, c)
         self.rnn = core_network(hidden_size, hidden_size)
+        self.i_size = i_size
         assert (i_size % g_size == 0)
+        self.dim = int(i_size / g_size)
         self.locator = discrete_location_network(hidden_size, int((i_size / g_size)**2))
         self.classifier = action_network(hidden_size, num_classes)
         self.baseliner = baseline_network(hidden_size, 1)
@@ -104,11 +106,13 @@ class RecurrentAttention(nn.Module):
         """
         unnormed_l_t, loc_dist = self.locator(h_t_prev)
 
+        #  import pdb; pdb.set_trace()
         if replace_l_t is not None:
             unnormed_l_t = torch.mul(unnormed_l_t, 1-replace_l_t)
             unnormed_l_t = unnormed_l_t + torch.mul(new_l_t, replace_l_t)
 
-        l_t = normalize_attention_loc(unnormed_l_t)
+        #  import pdb; pdb.set_trace()
+        l_t = normalize_attention_loc(unnormed_l_t, self.dim, self.dim)
 
         g_t = self.sensor(x, l_t)
         h_t = self.rnn(g_t, h_t_prev)
