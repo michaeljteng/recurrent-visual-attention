@@ -80,9 +80,9 @@ class Trainer(object):
 
         # training params
         self.epochs = config.epochs
-        #  self.use_attention_targets = config.use_attention_targets
+        self.attention_targets = config.attention_targets
         self.supervised_attention_prob = config.supervised_attention_prob
-        self.attention_target_weight = config.attention_target_weight
+        self.attention_target_weight = config.attention_target_weight if config.supervised_attention_prob > 0.0 else 0
         self.start_epoch = 0
         self.momentum = config.momentum
         self.lr = config.init_lr
@@ -102,10 +102,11 @@ class Trainer(object):
         self.print_freq = config.print_freq
         self.plot_freq = config.plot_freq
         self.image_size = config.image_size
-        self.model_name = '{}-{}_gnum:{}_gsize:{}x{}_imgsize:{}x{}'.format(
+        self.model_name = '{}-{}_gnum:{}_gsize:{}x{}_imgsize:{}x{}_prob:{}_mode:{}'.format(
             config.dataset, config.selected_attrs[0], 
             config.num_glimpses, config.patch_size, config.patch_size, 
-            config.image_size, config.image_size
+            config.image_size, config.image_size, 
+            config.supervised_attention_prob, config.attention_targets
         )
 
         self.model_checkpoints = self.ckpt_dir + '/' +  self.model_name + '/'
@@ -126,7 +127,7 @@ class Trainer(object):
 
         # build RAM model
         self.model = RecurrentAttention(
-            self.patch_size, self.num_patches, self.glimpse_scale,
+            self.patch_size, self.image_size, self.num_patches, self.glimpse_scale,
             self.num_channels, self.loc_hidden, self.glimpse_hidden,
             self.std, self.constrain_mu, self.hidden_size, self.num_classes,
         )
@@ -251,11 +252,6 @@ class Trainer(object):
         tic = time.time()
         with tqdm(total=self.num_train) as pbar:
             for i, (x,y) in enumerate(self.train_loader):
-                    #  import pdb; pdb.set_trace()
-                #      x, y, attention_targets, posterior_targets = data_batch
-                #  else:
-                #      x, y = data_batch
-                #
                 #  x, y are image and true label
                 #  at is a sequence of optimal entropy given attention targets
                 #  pt is a 1xnum_classes posterior categorical of the likelihood of class label given the design
@@ -268,16 +264,18 @@ class Trainer(object):
                     x, y = Variable(x), Variable(y.squeeze(1))
                 except:
                     x, y = Variable(x), Variable(y)
-                #  x, y = data_batch
-                attention_targets = None
-                posterior_targets = None
-                has_targets = None
 
-                # if i == 0:
-                #     print(y[0])
-                #     import matplotlib.pyplot as plt
-                #     plt.imshow(x[0, 0].numpy())
-                #     plt.show()
+                if self.supervised_attention_prob == 0.0:
+                    attention_targets = torch.zeros(x.shape[0], self.num_glimpses).long()
+                    has_targets = torch.zeros(x.shape[0]).long()
+                else:
+                    if self.attention_targets == 'approx':
+                        attention_targets = torch.LongTensor(np.random.randint(0, 196, size=(x.shape[0], self.num_glimpses)))
+                        has_targets = torch.ones(x.shape[0]).long()
+                    elif self.attention_targets == 'exact':
+                        raise ValueError('not done yet')
+                    else:
+                        raise ValueError('not implemented')
 
                 if self.use_gpu:
                     x, y = x.cuda(), y.cuda()
@@ -309,7 +307,7 @@ class Trainer(object):
 
                 for t in range(self.num_glimpses):
                     # forward pass through model
-                    l_t_targets = attention_targets[:, t]
+                    l_t_targets = attention_targets[:, t] 
 
                     if t == self.num_glimpses - 1:
                         h_t, l_t, b_t, log_probas, loc_dist = \
@@ -334,6 +332,7 @@ class Trainer(object):
                     p_current_targets = torch.dot(p_current_targets,
                                                   has_targets.type(
                                                       torch.FloatTensor))
+
                     loss_attention_targets.append(p_current_targets)
 
                     if self.entropy_reinforce:
@@ -383,7 +382,6 @@ class Trainer(object):
                        loss_baseline + \
                        loss_reinforce + \
                        -self.attention_target_weight * loss_attention_targets 
-                       #  0.000 * (loss_predicted_posteriors if self.use_attention_targets else 0)
 
                 if self.entropy_reinforce:
                     loss = loss + \
