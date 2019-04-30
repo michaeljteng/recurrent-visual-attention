@@ -68,7 +68,7 @@ train_arg.add_argument('--is_train', type=str2bool, default=True,
                        help='Whether to train or test the model')
 train_arg.add_argument('--attention_targets', type=str, default='approx', choices=['approx', 'exact'],
                        help='Whether to use targets for training the atteniton mechanism.')
-train_arg.add_argument('--attention_target_weight', type=float, default=100000.4,
+train_arg.add_argument('--attention_target_weight', type=float, default=1.0,
                        help='Weighting given to attention targets in loss.')
 train_arg.add_argument('--momentum', type=float, default=0.5,
                        help='Nesterov momentum value')
