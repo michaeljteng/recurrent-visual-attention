@@ -31,6 +31,7 @@ def save_details(config, metadata, losses):
             config.random_seed,
             str(metadata['start_time'])[-5:]
         )
+        import pdb; pdb.set_trace()
         pickle.dump({"config": config.__dict__,
                      "metadata": metadata,
                      "losses": losses},

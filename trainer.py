@@ -188,8 +188,9 @@ class Trainer(object):
 
         print("\n[*] Train on {} samples between validations, \
               validate on {} samples".format(
-            self.train_per_valid, self.num_valid)
+            self.num_train, self.num_valid)
         )
+        train_count = 0
 
         for epoch in range(self.start_epoch, self.epochs):
 
@@ -199,7 +200,7 @@ class Trainer(object):
             )
 
             # train for 1 epoch
-            train_loss, train_acc = self.train_one_epoch(epoch)
+            train_loss, train_acc, train_count = self.train_one_epoch(epoch, train_count)
 
             # evaluate on validation set
             valid_loss, valid_acc = self.validate(epoch)
@@ -239,7 +240,7 @@ class Trainer(object):
                                       self.valid_accs)}
         return training_details
 
-    def train_one_epoch(self, epoch):
+    def train_one_epoch(self, epoch, train_count):
         """
         Train the model for 1 epoch of the training set.
 
@@ -419,32 +420,34 @@ class Trainer(object):
                 )
                 pbar.update(self.batch_size)
 
-                # dump the glimpses and locs
-                if plot:
-                    if self.use_gpu:
-                        imgs = [g.cpu().data.numpy().squeeze() for g in imgs]
-                        locs = [l.cpu().data.numpy() for l in locs]
-                    else:
-                        imgs = [g.data.numpy().squeeze() for g in imgs]
-                        locs = [l.data.numpy() for l in locs]
-                    pickle.dump(
-                        imgs, open(
-                            self.plot_dir + "g_{}.p".format(epoch+1),
-                            "wb"
-                        )
-                    )
-                    pickle.dump(
-                        locs, open(
-                            self.plot_dir + "l_{}.p".format(epoch+1),
-                            "wb"
-                        )
-                    )
+                train_count += self.batch_size
 
-                self.traces_at_train_loss.append(epoch*self.train_per_valid + i*self.batch_size)
+                # dump the glimpses and locs
+                #  if plot:
+                #      if self.use_gpu:
+                #          imgs = [g.cpu().data.numpy().squeeze() for g in imgs]
+                #          locs = [l.cpu().data.numpy() for l in locs]
+                #      else:
+                #          imgs = [g.data.numpy().squeeze() for g in imgs]
+                #          locs = [l.data.numpy() for l in locs]
+                #      pickle.dump(
+                #          imgs, open(
+                #              self.plot_dir + "g_{}.p".format(epoch+1),
+                #              "wb"
+                #          )
+                #      )
+                #      pickle.dump(
+                #          locs, open(
+                #              self.plot_dir + "l_{}.p".format(epoch+1),
+                #              "wb"
+                #          )
+                #      )
+
+                self.traces_at_train_loss.append(train_count)
                 self.train_losses.append(loss.item())
                 self.train_accs.append(acc.item())
 
-            return losses.avg, accs.avg
+            return losses.avg, accs.avg, train_count
 
     def validate(self, epoch):
         """
@@ -529,7 +532,7 @@ class Trainer(object):
             losses.update(loss.data.item(), x.size()[0])
             accs.update(acc.data.item(), x.size()[0])
 
-        self.traces_at_valid_loss.append((epoch+1)*self.train_per_valid)
+        self.traces_at_valid_loss.append((epoch+1)*self.num_train)
         self.valid_losses.append(losses.avg)
         self.valid_accs.append(accs.avg)
 
@@ -543,96 +546,116 @@ class Trainer(object):
         """
         # load the best checkpoint
 
-        epoch = 1
-        f1s = []
-        accs = []
-
         print("Testing trained model with ", len(self.test_loader), " examples")
-        while(True):
-            try:
-                self.load_checkpoint(epoch=epoch)
-            except:
-                break
 
-            correct = 0
-            f1_correct  = 0
-            f1_reported  = 0
-            f1_relevant  = 0
-            for i, (x, y) in enumerate(self.test_loader):
-                with torch.no_grad():
-                    if self.use_gpu:
-                        x, y = x.cuda(), y.cuda()
-                    try:
-                        x, y = Variable(x), Variable(y.squeeze(1))
-                    except:
-                        x, y = Variable(x), Variable(y)
 
-                    # duplicate 10 times
-                    x = x.repeat(self.M, 1, 1, 1)
+        # get the superclass of models
+        true_model = self.model_name.split('prob')[0]
+        ckpts = './ckpt'
+        wtf = [os.path.join(ckpts, o) for o in os.listdir(ckpts) 
+                    if os.path.isdir(os.path.join(ckpts,o))]
 
-                    # initialize location vector and hidden state
-                    self.batch_size = x.shape[0]
-                    h_t = self.reset()
+        
+        all_models = []
+        for model in wtf:
+            if model.split('/')[-1][:len(true_model)] == true_model:
+                if len(os.listdir(model)) == 201:
+                    all_models.append(model)
+        #  print(all_models)
+        #  import pdb; pdb.set_trace()
+        all_f1s = {}
+        all_accs = {}
 
-                    # extract the glimpses
-                    for t in range(self.num_glimpses - 1):
-                        # forward pass through model
-                        h_t, l_t, _, b_t, p = self.model(
-                            x, h_t, last=False, replace_l_t=None, new_l_t=None
+        for test_model in all_models:
+            f1s = []
+            accs = []
+            epoch = 1
+            while(True):
+                try:
+                    self.load_checkpoint(epoch=epoch, specific_model=test_model)
+                except Exception as e:
+                    break
+
+                correct = 0
+                f1_correct  = 0
+                f1_reported  = 0
+                f1_relevant  = 0
+                for i, (x, y) in enumerate(self.test_loader):
+                    with torch.no_grad():
+                        if self.use_gpu:
+                            x, y = x.cuda(), y.cuda()
+                        try:
+                            x, y = Variable(x), Variable(y.squeeze(1))
+                        except:
+                            x, y = Variable(x), Variable(y)
+
+                        # duplicate 10 times
+                        x = x.repeat(self.M, 1, 1, 1)
+
+                        # initialize location vector and hidden state
+                        self.batch_size = x.shape[0]
+                        h_t = self.reset()
+
+                        # extract the glimpses
+                        for t in range(self.num_glimpses - 1):
+                            # forward pass through model
+                            h_t, l_t, _, b_t, p = self.model(
+                                x, h_t, last=False, replace_l_t=None, new_l_t=None
+                            )
+
+                        # last iteration
+                        h_t, l_t, _, b_t, log_probas, p = self.model(
+                            x, h_t, last=True, replace_l_t=None, new_l_t=None
                         )
 
-                    # last iteration
-                    h_t, l_t, _, b_t, log_probas, p = self.model(
-                        x, h_t, last=True, replace_l_t=None, new_l_t=None
-                    )
+                        log_probas = log_probas.view(
+                            self.M, -1, log_probas.shape[-1]
+                        )
+                        log_probas = torch.mean(log_probas, dim=0)
 
-                    log_probas = log_probas.view(
-                        self.M, -1, log_probas.shape[-1]
-                    )
-                    log_probas = torch.mean(log_probas, dim=0)
+                        pred = log_probas.data.max(1, keepdim=True)[1]
+                        correct += pred.eq(y.data.view_as(pred)).cpu().sum()
 
-                    pred = log_probas.data.max(1, keepdim=True)[1]
-                    correct += pred.eq(y.data.view_as(pred)).cpu().sum()
+                        preds = pred.flatten()
+                        total_reported = pred.sum()
+                        total_relevant = y.sum()
 
-                    preds = pred.flatten()
-                    total_reported = pred.sum()
-                    total_relevant = y.sum()
+                        preds[preds == 0] = 2
+                        total_correct = preds.eq(y.cpu()).sum()
 
-                    preds[preds == 0] = 2
-                    total_correct = preds.eq(y.cpu()).sum()
+                        f1_correct += total_correct
+                        f1_reported += total_reported
+                        f1_relevant += total_relevant
 
-                    f1_correct += total_correct
-                    f1_reported += total_reported
-                    f1_relevant += total_relevant
+                perc = (100. * correct) / (self.num_test)
+                error = 100 - perc
+                try:
+                    precision = float(f1_correct) / float(f1_reported)
+                except:
+                    precision = 0.0
 
-            perc = (100. * correct) / (self.num_test)
-            error = 100 - perc
-            try:
-                precision = float(f1_correct) / float(f1_reported)
-            except:
-                precision = 0.0
+                recall = float(f1_correct) / float(f1_relevant)
+                
+                try:
+                    f1_score = 2 * (precision * recall / (precision + recall))
+                except:
+                    f1_score = 0.0
+                accuracy = float(correct) / float(self.num_test)
 
-            recall = float(f1_correct) / float(f1_relevant)
-            
-            try:
-                f1_score = 2 * (precision * recall / (precision + recall))
-            except:
-                f1_score = 0.0
-            accuracy = float(correct) / float(self.num_test)
+                print(
+                        '[*] Test Acc: {}/{} ({:.2f}% - {:.2f}%) : F1 Score - {} \n'.format(
 
-            print(
-                    '[*] Test Acc: {}/{} ({:.2f}% - {:.2f}%) : F1 Score - {} \n'.format(
+                        correct, self.num_test, perc, error, f1_score)
+                )
+                epoch += 1
+                f1s.append(f1_score)
+                accs.append(accuracy)
 
-                    correct, self.num_test, perc, error, f1_score)
-            )
-            epoch += 1
-            f1s.append(f1_score)
-            accs.append(accuracy)
+            all_f1s[test_model] = f1s
+            all_accs[test_model] = accs
 
-        fig, ax = plt.subplots()
-        ax.plot(np.arange(len(f1s)), f1s)
-        ax.plot(np.arange(len(accs)), accs)
-        plt.show()
+        pickle.dump(all_f1s, open('./temp.p', 'wb'))
+        pickle.dump(all_accs, open('./tempa.p', 'wb'))
 
     def kde(self):
         epoch = 5
@@ -712,7 +735,7 @@ class Trainer(object):
                 ckpt_path, os.path.join(self.model_checkpoints, filename)
             )
 
-    def load_checkpoint(self, epoch=1):
+    def load_checkpoint(self, epoch=1, specific_model=None):
         """
         Load the best copy of a model. This is useful for 2 cases:
 
@@ -725,12 +748,15 @@ class Trainer(object):
           to evaluate your model on the test data. Else, set to False in
           which case the most recent version of the checkpoint is used.
         """
-        print("[*] Loading model from {}".format(self.model_checkpoints))
 
-        filename = self.model_name + '_' + str(epoch) + '_ckpt.pth.tar'
         #  if best:
         #      filename = self.model_name + '_model_best.pth.tar'
-        ckpt_path = os.path.join(self.model_checkpoints, filename)
+        mc = self.model_checkpoints if specific_model == None else specific_model
+        mn = self.model_name if specific_model == None else specific_model.split('/')[-1]
+        filename = mn + '_' + str(epoch) + '_ckpt.pth.tar'
+
+        print("[*] Loading model from {}".format(mc))
+        ckpt_path = os.path.join(mc, filename)
         ckpt = torch.load(ckpt_path)
 
         # load variables from checkpoint
@@ -750,3 +776,4 @@ class Trainer(object):
                 "[*] Loaded {} checkpoint @ epoch {}".format(
                     filename, ckpt['epoch'])
             )
+

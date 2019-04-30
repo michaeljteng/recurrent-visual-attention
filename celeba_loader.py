@@ -111,7 +111,7 @@ def get_train_celeba_loader(image_dir,
 
     train_sampler = SubsetRandomSampler(train_idx[:1000])
     valid_sampler = SubsetRandomSampler(valid_idx[:200])
-    test_sampler = SubsetRandomSampler(test_idx[:500])
+    test_sampler = SubsetRandomSampler(test_idx[:100])
 
     train_loader = data.DataLoader(dataset=dataset,
                                   batch_size=batch_size,
