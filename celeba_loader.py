@@ -109,8 +109,8 @@ def get_train_celeba_loader(image_dir,
     valid_split = int(np.floor(valid_size * num_train))
     train_idx, valid_idx = remainder_indices[valid_split:], remainder_indices[:valid_split]
 
-    train_sampler = SubsetRandomSampler(train_idx)
-    valid_sampler = SubsetRandomSampler(valid_idx)
+    train_sampler = SubsetRandomSampler(train_idx[:1000])
+    valid_sampler = SubsetRandomSampler(valid_idx[:200])
     test_sampler = SubsetRandomSampler(test_idx[:500])
 
     train_loader = data.DataLoader(dataset=dataset,

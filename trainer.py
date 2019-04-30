@@ -315,12 +315,12 @@ class Trainer(object):
                     l_t_targets = attention_targets[:, t] 
 
                     if t == self.num_glimpses - 1:
-                        h_t, l_t, b_t, log_probas, loc_dist = \
+                        h_t, l_t, _, b_t, log_probas, loc_dist = \
                             self.model(x, h_t, last=True,
                                        replace_l_t=has_targets,
                                        new_l_t=l_t_targets)
                     else:
-                        h_t, l_t, b_t, loc_dist = \
+                        h_t, l_t, _, b_t, loc_dist = \
                             self.model(x, h_t, last=False,
                                        replace_l_t=has_targets,
                                        new_l_t=l_t_targets)
@@ -474,14 +474,14 @@ class Trainer(object):
             baselines = []
             for t in range(self.num_glimpses - 1):
                 # forward pass through model
-                h_t, unnormed_l_t, b_t, loc_dist = self.model(x, h_t)
+                h_t, unnormed_l_t, _, b_t, loc_dist = self.model(x, h_t)
 
                 # store
                 baselines.append(b_t)
                 log_pi.append(loc_dist.log_prob(unnormed_l_t))
 
             # last iteration
-            h_t, unnormed_l_t, b_t, log_probas, loc_dist = self.model(
+            h_t, unnormed_l_t, _, b_t, log_probas, loc_dist = self.model(
                 x, h_t, last=True
             )
             log_pi.append(loc_dist.log_prob(unnormed_l_t))
@@ -577,11 +577,13 @@ class Trainer(object):
                     # extract the glimpses
                     for t in range(self.num_glimpses - 1):
                         # forward pass through model
-                        h_t, l_t, b_t, p, ld = self.model(x, h_t, last=True, replace_lt=None)
+                        h_t, l_t, _, b_t, p = self.model(
+                            x, h_t, last=False, replace_l_t=None, new_l_t=None
+                        )
 
                     # last iteration
-                    h_t, l_t, b_t, log_probas, p = self.model(
-                        x, h_t, last=True, replace_lt=None
+                    h_t, l_t, _, b_t, log_probas, p = self.model(
+                        x, h_t, last=True, replace_l_t=None, new_l_t=None
                     )
 
                     log_probas = log_probas.view(
@@ -670,11 +672,11 @@ class Trainer(object):
                 # extract the glimpses
                 for t in range(self.num_glimpses - 1):
                     # forward pass through model
-                    h_t, l_t, b_t, _, _ = self.model(x, h_t, last=True, replace_lt=None)    # last=True means it always makes predictions
+                    h_t, l_t, _, b_t, _, _ = self.model(x, h_t, last=True, replace_lt=None)    # last=True means it always makes predictions
 
 
                 # last iteration
-                h_t, l_t, b_t, log_probas, p = self.model(
+                h_t, l_t, _, b_t, log_probas, p = self.model(
                     x, h_t, last=True, replace_lt=None
                 )
 

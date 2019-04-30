@@ -104,7 +104,7 @@ misc_arg.add_argument('--ckpt_dir', type=str, default='./ckpt',
                       help='Directory in which to save model checkpoints')
 misc_arg.add_argument('--logs_dir', type=str, default='./logs/',
                       help='Directory in which Tensorboard logs wil be stored')
-misc_arg.add_argument('--use_tensorboard', type=str2bool, default=True,
+misc_arg.add_argument('--use_tensorboard', type=str2bool, default=False,
                       help='Whether to use tensorboard for visualization')
 misc_arg.add_argument('--resume', type=str2bool, default=False,
                       help='Whether to resume training from checkpoint')
@@ -126,6 +126,8 @@ misc_arg.add_argument('--selected_attrs', '--list', nargs='+', help='selected at
 misc_arg.add_argument('--celeba_crop_size', type=int, default=178, help='crop size for the CelebA dataset')
 misc_arg.add_argument('--image_size', type=int, default=28, help='image resolution')
 misc_arg.add_argument('--mode', type=str, default='train', choices=['train', 'test'])
+misc_arg.add_argument('--path', type=str, default='experiments',
+                      help="Path for saving experimental data to.")
 
 def get_config():
     config, unparsed = parser.parse_known_args()

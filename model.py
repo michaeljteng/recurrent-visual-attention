@@ -106,12 +106,10 @@ class RecurrentAttention(nn.Module):
         """
         unnormed_l_t, loc_dist = self.locator(h_t_prev)
 
-        #  import pdb; pdb.set_trace()
         if replace_l_t is not None:
             unnormed_l_t = torch.mul(unnormed_l_t, 1-replace_l_t)
             unnormed_l_t = unnormed_l_t + torch.mul(new_l_t, replace_l_t)
 
-        #  import pdb; pdb.set_trace()
         l_t = normalize_attention_loc(unnormed_l_t, self.dim, self.dim)
 
         g_t = self.sensor(x, l_t)
@@ -120,6 +118,6 @@ class RecurrentAttention(nn.Module):
 
         if last:
             log_probas = self.classifier(h_t)
-            return h_t, unnormed_l_t, b_t, log_probas, loc_dist
+            return h_t, unnormed_l_t, l_t, b_t, log_probas, loc_dist
 
-        return h_t, unnormed_l_t, b_t, loc_dist
+        return h_t, unnormed_l_t, l_t, b_t, loc_dist
