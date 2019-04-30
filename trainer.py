@@ -276,7 +276,7 @@ class Trainer(object):
                         attention_targets = self.supervised_loader.sample(x.shape[0], self.num_glimpses)
                         has_targets = torch.tensor([1 if i < round(self.supervised_attention_prob*x.shape[0]) 
                                                     else 0 
-                                                    for i in range(64)]).long()
+                                                    for i in range(x.shape[0])]).long()
                     elif self.attention_targets == 'exact':
                         raise ValueError('not done yet')
                     else:

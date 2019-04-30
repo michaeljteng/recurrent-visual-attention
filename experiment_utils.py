@@ -71,8 +71,8 @@ class ApproxAttention(object):
 
     def sample(self, batch_size, num_glimpses):
         #  print('wtf')
-        if self.sampler == None:
-            self.sampler = torch.distributions.Categorical(self.sample_probs.expand(batch_size, num_glimpses, self.sample_probs.shape[0]))
+        #  if self.sampler == None:
+        self.sampler = torch.distributions.Categorical(self.sample_probs.expand(batch_size, num_glimpses, self.sample_probs.shape[0]))
         unnormed = self.sampler.sample()
         return torch.round((unnormed.float() / 2500)*self.num_glimpses).long()
         
