@@ -6,6 +6,7 @@ data/celebhq
 data/raw/
 logs/
 ckpt/
+experiments/
 .DS_Store
 
 # Byte-compiled / optimized / DLL files

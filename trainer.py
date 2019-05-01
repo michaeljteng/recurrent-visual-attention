@@ -238,7 +238,7 @@ class Trainer(object):
                             "valid": (self.traces_at_valid_loss,
                                       self.valid_losses,
                                       self.valid_accs)}
-        return training_details
+        return training_details, self.model_name
 
     def train_one_epoch(self, epoch, train_count):
         """

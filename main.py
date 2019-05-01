@@ -69,8 +69,8 @@ def main(config, get_metadata=None):
     # either train
     if config.is_train:
         save_config(config)
-        losses = trainer.train()
-        save_details(config, get_metadata(), losses)
+        losses, model_name = trainer.train()
+        save_details(config, get_metadata(), losses, model_name)
 
     # or load a pretrained model and test
     else:

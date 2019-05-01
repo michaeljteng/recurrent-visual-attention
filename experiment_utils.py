@@ -22,16 +22,14 @@ def track_metadata(foo):
     return tracked
 
 
-def save_details(config, metadata, losses):
+def save_details(config, metadata, losses, model_name):
     if config.path is not None:
-        filename = "{}/{}_{}_{}_{}.p".format(
+        filename = "{}/{}_{}_{}.p".format(
             config.path,
-            config.num_glimpses,
-            config.supervised_attention_prob,
+            model_name, 
             config.random_seed,
             str(metadata['start_time'])[-5:]
         )
-        import pdb; pdb.set_trace()
         pickle.dump({"config": config.__dict__,
                      "metadata": metadata,
                      "losses": losses},
@@ -60,7 +58,7 @@ class ApproxAttention(object):
                                 else APEs[(y, x)] \
                             for x in coords] for y in coords])
         maxZ = np.max(self.Z)
-        entropy_cutoff = cutoff * maxZ
+        entropy_cutoff = 0.95 * maxZ
         self.sample_probs = torch.softmax(
                                 torch.tensor(
                                     np.where(self.Z > entropy_cutoff, 

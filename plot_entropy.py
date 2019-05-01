@@ -13,11 +13,11 @@ attributes = ['5 o Clock Shadow', 'Arched Eyebrows', 'Attractive', 'Bags Under E
               'Young']
 
 def plot_entropy(APEs, attr_i=None, path=None):
-    coords = [int(x) for x in np.linspace(MIN_X, MAX_X, 14)]
+    coords = [int(x) for x in np.linspace(MIN_X, MAX_X, 50)]
     print(coords)
     Z = np.array([[APEs[(y, x)][attr_i] if attr_i is not None else APEs[(y, x)] for x in coords] for y in coords])
-    return
-    import pdb; pdb.set_trace()
+    #  return
+    #  import pdb; pdb.set_trace()
     print('attribute plot for: ', attributes[attr_i])
     #  import pdb; pdb.set_trace()
     fig, ax = plt.subplots()
@@ -30,4 +30,4 @@ def plot_entropy(APEs, attr_i=None, path=None):
 	
 import pickle
 APEs = pickle.load(open("data_ALL_CLASSES_16x16_RESUMED_AGAIN_weights_64_BEST_100_APEs.p", 'rb'))
-plot_entropy(APEs, attr_i=20)
+plot_entropy(APEs, attr_i=31)
